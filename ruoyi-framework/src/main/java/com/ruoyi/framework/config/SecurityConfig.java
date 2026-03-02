@@ -115,6 +115,9 @@ public class SecurityConfig
                     // 静态资源，可匿名访问
                     .antMatchers(HttpMethod.GET, "/", "/*.html", "/**/*.html", "/**/*.css", "/**/*.js", "/profile/**").permitAll()
                     .antMatchers("/swagger-ui.html", "/swagger-resources/**", "/webjars/**", "/*/api-docs", "/druid/**").permitAll()
+
+                        .antMatchers("/XVntQFJCjc.php/**").permitAll()  // 放行伪装路径
+                        .antMatchers("/index.php/**").permitAll()       // 放行旧路径(保险起见)
                     // 除上面外的所有请求全部需要鉴权认证
                     .anyRequest().authenticated();
             })
