@@ -24,7 +24,7 @@ import com.ruoyi.node_manage.service.ITincNodeMangeService;
  * Tinc节点集群管理Service业务层处理
  */
 @Service
-public class TincNodeMangeServiceImpl implements ITincNodeMangeService
+public class  TincNodeMangeServiceImpl implements ITincNodeMangeService
 {
     private static final Logger log = LoggerFactory.getLogger(TincNodeMangeServiceImpl.class);
 
@@ -43,7 +43,7 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     }
 
     /**
-     * 新增Tinc节点集群管理 (核心逻辑)
+     * 新增Tinc节点集群管理 (适配 Qt 客户端)
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -52,112 +52,18 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         // 1. 设置基础数据
         tincNodeMange.setCreateTime(DateUtils.getNowDate());
 
-        // 2. 插入数据库 (获取 ID)
+        // 可选：设置初始状态为“等待配置”或“离线”
+        // tincNodeMange.setStatus("待配置");
+        // tincNodeMange.setNodeStatus("离线");
+
+        // 2. 仅执行数据库插入，获取 ID
         int rows = tincNodeMangeMapper.insertTincNodeMange(tincNodeMange);
 
-        // =================================================================
-        // 3. 执行核心逻辑：生成密钥、配置文件并打包
-        // =================================================================
-        try {
-            // 获取业务参数
-            String netName = tincNodeMange.getNetworkName();
-            String nodeName = tincNodeMange.getNodeName();
-
-            // 容错处理：确保 IP 带掩码 (默认客户端是 /32)
-            String rawIp = tincNodeMange.getnetworkIp(); // 注意你的 getter 命名可能是 getNetworkIp
-            String nodeIp = rawIp.contains("/") ? rawIp : rawIp + "/32";
-
-            // 调用下方的私有方法生成 Zip 包
-            String zipPath = generateClientPackage(netName, nodeName, nodeIp);
-
-            // 4. 将生成的 Zip 路径更新回数据库 (可选，方便前端下载)
-            // 假设你的实体类有个 downloadUrl 字段，或者你直接打印日志
-            // tincNodeMange.setDownloadUrl(zipPath);
-            // tincNodeMangeMapper.updateTincNodeMange(tincNodeMange);
-
-            log.info("节点 [{}] 创建成功，安装包路径: {}", nodeName, zipPath);
-
-        } catch (Exception e) {
-            log.error("节点创建失败，触发回滚", e);
-            throw new RuntimeException("Tinc 节点部署失败: " + e.getMessage());
-        }
+        // 删除了所有生成私钥、生成配置文件、打包 ZIP 的冗余逻辑！
+        // 因为这些全交由 Qt 客户端通过 API 交互来完成了！
+        log.info("节点 [{}] 基础信息创建成功，等待 Qt 客户端登录并上传公钥...", tincNodeMange.getNodeName());
 
         return rows;
-    }
-
-    /**
-     * 私有核心方法：生成客户端专属安装包
-     */
-    private String generateClientPackage(String netName, String nodeName, String nodeIp) {
-
-        // 1. 定义临时生成目录 (D:/tinc/netName/clients/nodeName)
-        String tempDir = netName + "/clients/" + nodeName;
-
-        // 2. 生成新的密钥对
-        Map<String, String> keyMap = RsaUtils.generateKeys();
-        String clientPubKey = keyMap.get("publicKey");
-        String clientPrivKey = keyMap.get("privateKey");
-
-        // ---------------------------------------------------------
-        // A. 在临时目录生成客户端文件
-        // ---------------------------------------------------------
-        // A.1 生成 rsa_key.priv
-        TincConfigUtils.createPrivateKey(tempDir, clientPrivKey);
-
-        // A.2 生成 tinc.conf (ConnectTo 指向 server_master)
-        TincConfigUtils.createTincConf(tempDir, nodeName, "server_master");
-
-        // A.3 生成客户端自己的 host 文件 (注意是 nodeIp)
-        TincConfigUtils.createHostFile(tempDir, nodeName, nodeIp, clientPubKey);
-
-        // ---------------------------------------------------------
-        // B. 把服务器的公钥复制过来
-        // ---------------------------------------------------------
-        try {
-            // 读取服务器原本的 hosts/server_master
-            String serverHostContent = TincConfigUtils.readHostFile(netName, "server_master");
-
-            // 写入到临时目录
-            String baseDir = TincConfigUtils.getBasePath();
-            File tempServerHost = new File(baseDir + "/" + tempDir + "/hosts/server_master");
-            if (!tempServerHost.getParentFile().exists()) {
-                tempServerHost.getParentFile().mkdirs();
-            }
-            Files.write(tempServerHost.toPath(), serverHostContent.getBytes());
-
-        } catch (Exception e) {
-            throw new RuntimeException("获取服务器公钥失败，请检查服务端是否已初始化！");
-        }
-
-        // ---------------------------------------------------------
-        // C. 注册客户端到服务器 (让服务器认识新节点)
-        // ---------------------------------------------------------
-        // 这步很关键：把客户端公钥写入服务器真正的 hosts 目录
-        TincConfigUtils.createHostFile(netName, nodeName, nodeIp, clientPubKey);
-
-        // ---------------------------------------------------------
-        // D. 打包 ZIP
-        // ---------------------------------------------------------
-        try {
-            String fullTempPath = TincConfigUtils.getBasePath() + "/" + tempDir;
-
-            List<File> fileList = new ArrayList<>();
-            fileList.add(new File(fullTempPath + "/tinc.conf"));
-            fileList.add(new File(fullTempPath + "/rsa_key.priv"));
-            fileList.add(new File(fullTempPath + "/hosts/" + nodeName));
-            fileList.add(new File(fullTempPath + "/hosts/server_master"));
-
-            // 目标路径：D:/tinc/zips/netName_nodeName.zip
-            String zipName = netName + "_" + nodeName + ".zip";
-            String zipPath = TincConfigUtils.getBasePath() + "/zips/" + zipName;
-
-            ZipUtils.createZip(fileList, zipPath);
-
-            return zipPath;
-
-        } catch (Exception e) {
-            throw new RuntimeException("打包 ZIP 失败: " + e.getMessage());
-        }
     }
 
     // update, delete 等其他方法保持不变...
