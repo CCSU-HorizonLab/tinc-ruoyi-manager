@@ -152,7 +152,7 @@
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" @click="submitForm" :loading="isSubmitting">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
@@ -183,8 +183,8 @@ export default {
       mangerList: [],
       // 弹出层标题
       title: "",
-      // 是否显示弹出层
-      open: false,
+      // 是否正在提交
+      isSubmitting: false,
       // 查询参数
       queryParams: {
         pageNum: 1,
@@ -293,6 +293,8 @@ export default {
     },
     /** 提交按钮 */
     submitForm() {
+      if (this.isSubmitting) return;
+      this.isSubmitting = true;
       this.$refs["form"].validate(valid => {
         if (valid) {
           if (this.form.id != null) { // 修改: 从this.form.Id改为this.form.id，与后端返回的JSON字段名保持一致
@@ -300,14 +302,20 @@ export default {
               this.$modal.msgSuccess("修改成功")
               this.open = false
               this.getList()
+            }).finally(() => {
+              this.isSubmitting = false;
             })
           } else {
             addManger(this.form).then(response => {
               this.$modal.msgSuccess("新增成功")
               this.open = false
               this.getList()
+            }).finally(() => {
+              this.isSubmitting = false;
             })
           }
+        } else {
+          this.isSubmitting = false;
         }
       })
     },

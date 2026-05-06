@@ -145,7 +145,7 @@
     </el-form-item>
   </el-form>
   <div slot="footer" class="dialog-footer">
-    <el-button type="primary" @click="submitForm">确 定</el-button>
+    <el-button type="primary" @click="submitForm" :loading="isSubmitting">确 定</el-button>
     <el-button @click="cancel">取 消</el-button>
   </div>
 </el-dialog>
@@ -217,6 +217,8 @@ export default {
           { required: true, message: "内网状态不能为空", trigger: "change" }
         ],
       },
+      // 是否正在提交
+      isSubmitting: false,
       //接入服务器
       serverOptions: [],
       //当前服务器端口和网段范围
@@ -230,6 +232,9 @@ export default {
   created() {
     this.getList()
     this.getServerOptions();
+  },
+  activated() {
+    this.getServerOptions(); // 只要切回页面，就刷新服务器列表
   },
   methods: {
     /** 查询Tinc内网集群管理列表 */
@@ -319,6 +324,8 @@ export default {
     },
     /** 提交按钮 */
     submitForm() {
+      if (this.isSubmitting) return;
+      this.isSubmitting = true;
       // 确保rootName始终为当前登录用户
       this.form.rootName = this.$store.getters.name;
       console.log('当前登录用户:', this.$store.getters.name);
@@ -333,6 +340,8 @@ export default {
               this.getList()
             }).catch(error => {
               this.$modal.msgError(`修改失败: ${error.response?.data?.msg || error.message}`)
+            }).finally(() => {
+              this.isSubmitting = false;
             })
           } else {
             addTincNetworkMange(this.form).then(response => {
@@ -341,8 +350,12 @@ export default {
               this.getList()
             }).catch(error => {
               this.$modal.msgError(`新增失败: ${error.response?.data?.msg || error.message}`)
+            }).finally(() => {
+              this.isSubmitting = false;
             })
           }
+        } else {
+          this.isSubmitting = false;
         }
       })
     },
