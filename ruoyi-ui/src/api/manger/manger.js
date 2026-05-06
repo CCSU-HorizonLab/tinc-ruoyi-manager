@@ -44,7 +44,7 @@ export function addManger(data) {
  * @returns {Promise} - 修改结果
  */
 export function updateManger(data) {
-  return request({
+return request({
     url: '/manger/mangeServer',
     method: 'put',
     data: data

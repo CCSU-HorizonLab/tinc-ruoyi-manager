@@ -1,34 +1,52 @@
 <template>
-  <div class="network-status-container">
-    <h2>网络状态统计</h2>
-    <p>实时监控网络状态和健康度</p>
+  <div class="network-status-container" v-loading="loading">
+    <div class="header-section">
+      <div class="title-wrapper">
+        <h2>网络状态统计</h2>
+        <p>实时监控网络状态和健康度</p>
+      </div>
+      <div class="action-wrapper">
+        <el-switch
+          v-model="autoRefresh"
+          active-text="自动刷新(30s)"
+          @change="handleAutoRefreshChange">
+        </el-switch>
+        <el-button 
+          type="primary" 
+          icon="el-icon-refresh" 
+          size="small" 
+          @click="getStats"
+          style="margin-left: 15px;">
+          手动刷新
+        </el-button>
+      </div>
+    </div>
     
     <!-- 网络状态卡片 -->
     <el-row :gutter="20" style="margin-bottom: 20px;">
       <!-- 网络在线状态 -->
       <el-col :xs="24" :sm="12" :lg="6">
-        <el-card class="network-card">
+        <el-card class="network-card info-card" shadow="hover">
           <div class="card-header">
             <h3>网络在线状态</h3>
           </div>
           <div class="card-content">
             <div class="online-rate">
-              <div class="circle-chart">
-                <div class="circle-bg"></div>
-                <div class="circle-progress" :style="{ '--progress': onlineRate + '%' }"></div>
-                <div class="circle-text">
-                  <span class="rate-value">{{ onlineRate }}%</span>
-                </div>
-              </div>
+              <el-progress 
+                type="circle" 
+                :percentage="stats.onlineRate" 
+                :color="progressColors"
+                :width="100">
+              </el-progress>
             </div>
             <div class="network-stats">
               <div class="stat-item">
                 <span class="stat-label">总网络数</span>
-                <span class="stat-value">{{ totalNetworks }}</span>
+                <span class="stat-value">{{ stats.totalNetworks }}</span>
               </div>
               <div class="stat-item">
                 <span class="stat-label">在线网络</span>
-                <span class="stat-value online">{{ onlineNetworks }}</span>
+                <span class="stat-value online">{{ stats.onlineNetworks }}</span>
               </div>
             </div>
           </div>
@@ -37,19 +55,17 @@
       
       <!-- 平均响应时间 -->
       <el-col :xs="24" :sm="12" :lg="6">
-        <el-card class="network-card">
+        <el-card class="network-card info-card" shadow="hover">
           <div class="card-header">
             <h3>平均响应时间</h3>
           </div>
           <div class="card-content">
             <div class="response-time">
-              <div class="time-value">{{ averageResponseTime }}ms</div>
+              <div class="time-value primary">{{ stats.averageResponseTime }}<span class="unit">ms</span></div>
               <div class="time-desc">最近7天平均</div>
             </div>
             <div class="response-chart">
-              <div class="chart-container">
-                <line-chart :chart-data="responseTimeChartData" :height="'100px'" />
-              </div>
+              <line-chart :chart-data="stats.responseTimeChartData" :height="'100px'" />
             </div>
           </div>
         </el-card>
@@ -57,17 +73,17 @@
       
       <!-- 网络健康平均分 -->
       <el-col :xs="24" :sm="12" :lg="6">
-        <el-card class="network-card">
+        <el-card class="network-card info-card" shadow="hover">
           <div class="card-header">
             <h3>网络健康平均分</h3>
           </div>
           <div class="card-content">
             <div class="health-score">
-              <div class="score-value">{{ healthScore }}</div>
+              <div class="score-value" :class="healthScoreClass">{{ stats.healthScore }}</div>
               <div class="score-desc">最近7天平均</div>
             </div>
             <div class="health-status">
-              <el-tag :type="healthStatusType">{{ healthStatus }}</el-tag>
+              <el-tag :type="healthStatusType" effect="dark">{{ stats.healthStatus }}</el-tag>
             </div>
           </div>
         </el-card>
@@ -75,17 +91,25 @@
       
       <!-- 平均故障恢复时间 -->
       <el-col :xs="24" :sm="12" :lg="6">
-        <el-card class="network-card">
+        <el-card class="network-card info-card" shadow="hover">
           <div class="card-header">
             <h3>平均故障恢复时间</h3>
           </div>
           <div class="card-content">
             <div class="recovery-time">
-              <div class="time-value">{{ averageRecoveryTime }}分钟</div>
+              <div class="time-value warning">{{ stats.averageRecoveryTime }}<span class="unit">分钟</span></div>
               <div class="time-desc">最近7天平均</div>
             </div>
-            <div class="recovery-chart">
-              <div class="chart-line"></div>
+            <div class="recovery-progress">
+              <el-progress 
+                :percentage="recoveryPercentage" 
+                :show-text="false"
+                status="warning">
+              </el-progress>
+              <div class="recovery-footer">
+                <span>0</span>
+                <span>目标: < 30min</span>
+              </div>
             </div>
           </div>
         </el-card>
@@ -93,12 +117,15 @@
     </el-row>
     
     <!-- 网络中断次数趋势 -->
-    <el-card class="network-chart-card">
-      <div class="card-header">
-        <h3>网络中断次数趋势（过去7天）</h3>
+    <el-card class="network-chart-card" shadow="hover">
+      <div slot="header" class="clearfix">
+        <span class="card-title">网络中断次数趋势（过去7天）</span>
+        <el-tooltip content="显示过去一周内发生的网络中断次数统计" placement="top">
+          <i class="el-icon-info" style="margin-left: 5px; color: #909399;"></i>
+        </el-tooltip>
       </div>
       <div class="card-content">
-        <line-chart :chart-data="interruptChartData" :height="'200px'" />
+        <line-chart :chart-data="stats.interruptChartData" :height="'300px'" />
       </div>
     </el-card>
   </div>
@@ -106,6 +133,7 @@
 
 <script>
 import LineChart from './LineChart.vue'
+import { getGlobalNetworkStats } from '@/api/monitor/networkMonitor'
 
 export default {
   components: {
@@ -113,55 +141,112 @@ export default {
   },
   data() {
     return {
-      // 网络在线状态
-      totalNetworks: 2,
-      onlineNetworks: 2,
-      onlineRate: 100,
-      
-      // 平均响应时间
-      averageResponseTime: 50,
-      
-      // 网络健康分
-      healthScore: 85,
-      healthStatus: '健康状态良好',
-      healthStatusType: 'success',
-      
-      // 平均故障恢复时间
-      averageRecoveryTime: 0,
-      
-      // 图表数据
-      responseTimeChartData: {
-        expectedData: [],
-        actualData: [45, 52, 48, 55, 49, 53, 50]
-      },
-      interruptChartData: {
-        expectedData: [],
-        actualData: [0, 0, 0, 0, 0, 0, 0]
+      loading: false,
+      autoRefresh: false,
+      refreshTimer: null,
+      progressColors: [
+        { color: '#f56c6c', percentage: 20 },
+        { color: '#e6a23c', percentage: 40 },
+        { color: '#5cb87a', percentage: 60 },
+        { color: '#1989fa', percentage: 80 },
+        { color: '#67c23a', percentage: 100 }
+      ],
+      // 网络状态聚合数据
+      stats: {
+        totalNetworks: 0,
+        onlineNetworks: 0,
+        onlineRate: 0,
+        averageResponseTime: 0,
+        healthScore: 0,
+        healthStatus: '正在加载...',
+        averageRecoveryTime: 0,
+        responseTimeChartData: {
+          expectedData: [],
+          actualData: []
+        },
+        interruptChartData: {
+          expectedData: [],
+          actualData: []
+        }
       }
     }
   },
-  mounted() {
-    // 模拟数据更新
-    this.simulateDataUpdate()
+  computed: {
+    healthStatusType() {
+      if (this.stats.healthScore >= 80) return 'success'
+      if (this.stats.healthScore >= 60) return 'warning'
+      return 'danger'
+    },
+    healthScoreClass() {
+      if (this.stats.healthScore >= 80) return 'success-text'
+      if (this.stats.healthScore >= 60) return 'warning-text'
+      return 'danger-text'
+    },
+    recoveryPercentage() {
+      // 假设 60 分钟是 100% 的参考值，时间越短越好，但这里展示进度
+      const percentage = (this.stats.averageRecoveryTime / 60) * 100
+      return Math.min(Math.max(percentage, 0), 100)
+    }
+  },
+  created() {
+    this.getStats()
+  },
+  beforeDestroy() {
+    this.stopRefreshTimer()
   },
   methods: {
+    /** 获取统计数据 */
+    getStats() {
+      this.loading = true
+      getGlobalNetworkStats().then(response => {
+        if (response.data) {
+          this.stats = response.data
+        }
+        this.loading = false
+      }).catch(() => {
+        this.loading = false
+        this.simulateDataUpdate()
+      })
+    },
+    /** 处理自动刷新开关变化 */
+    handleAutoRefreshChange(val) {
+      if (val) {
+        this.startRefreshTimer()
+      } else {
+        this.stopRefreshTimer()
+      }
+    },
+    startRefreshTimer() {
+      this.stopRefreshTimer()
+      this.refreshTimer = setInterval(() => {
+        this.getStats()
+      }, 30000)
+    },
+    stopRefreshTimer() {
+      if (this.refreshTimer) {
+        clearInterval(this.refreshTimer)
+        this.refreshTimer = null
+      }
+    },
+    /** 模拟数据更新 (用于后端接口未就绪时的演示) */
     simulateDataUpdate() {
-      // 这里可以添加实际的API调用，获取网络状态数据
-      // 目前使用模拟数据
-      setInterval(() => {
-        // 随机更新一些数据
-        this.averageResponseTime = Math.floor(Math.random() * 20) + 45
-        this.healthScore = Math.floor(Math.random() * 10) + 80
-        
-        // 更新图表数据
-        this.responseTimeChartData.actualData = this.responseTimeChartData.actualData.map(() => {
-          return Math.floor(Math.random() * 20) + 40
-        })
-        
-        this.interruptChartData.actualData = this.interruptChartData.actualData.map(() => {
-          return Math.floor(Math.random() * 2)
-        })
-      }, 5000)
+      this.stats = {
+        totalNetworks: 12,
+        onlineNetworks: 10,
+        onlineRate: 83,
+        averageResponseTime: 45,
+        healthScore: 88,
+        healthStatus: '健康状态良好',
+        averageRecoveryTime: 12,
+        responseTimeChartData: {
+          expectedData: [50, 50, 50, 50, 50, 50, 50],
+          actualData: [45, 52, 48, 55, 49, 53, 50]
+        },
+        interruptChartData: {
+          expectedData: [1, 2, 1, 0, 1, 2, 1],
+          actualData: [0, 1, 0, 0, 0, 1, 0]
+        }
+      }
     }
   }
 }
@@ -170,27 +255,53 @@ export default {
 <style lang="scss" scoped>
 .network-status-container {
   padding: 20px;
+  background-color: #f8f9fb;
+  min-height: calc(100vh - 84px);
+}
+
+.header-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+  
+  .title-wrapper {
+    h2 {
+      margin: 0 0 5px 0;
+      font-size: 24px;
+      color: #303133;
+    }
+    p {
+      margin: 0;
+      font-size: 14px;
+      color: #909399;
+    }
+  }
+}
+
+.info-card {
+  height: 240px;
+  margin-bottom: 20px;
 }
 
 .network-card {
-  height: 100%;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  border: none;
+  border-radius: 10px;
+  transition: all 0.3s;
+  
+  &:hover {
+    transform: translateY(-5px);
+  }
   
   .card-header {
-    border-bottom: 1px solid #f0f0f0;
-    padding-bottom: 10px;
     margin-bottom: 15px;
     
     h3 {
       margin: 0;
       font-size: 16px;
-      color: #333;
+      color: #606266;
+      font-weight: 600;
     }
-  }
-  
-  .card-content {
-    padding: 10px 0;
   }
 }
 
@@ -198,53 +309,14 @@ export default {
 .online-rate {
   display: flex;
   justify-content: center;
-  margin-bottom: 15px;
-}
-
-.circle-chart {
-  position: relative;
-  width: 100px;
-  height: 100px;
-}
-
-.circle-bg {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background-color: #f0f0f0;
-}
-
-.circle-progress {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: conic-gradient(
-    #409eff var(--progress),
-    transparent 0%
-  );
-  mask-image: radial-gradient(circle at center, transparent 60%, black 60%);
-  -webkit-mask-image: radial-gradient(circle at center, transparent 60%, black 60%);
-}
-
-.circle-text {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-}
-
-.rate-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: #409eff;
+  margin-bottom: 20px;
 }
 
 .network-stats {
   display: flex;
   justify-content: space-around;
+  border-top: 1px solid #f2f6fc;
+  padding-top: 15px;
 }
 
 .stat-item {
@@ -254,90 +326,74 @@ export default {
 .stat-label {
   display: block;
   font-size: 12px;
-  color: #666;
+  color: #909399;
   margin-bottom: 5px;
 }
 
 .stat-value {
   display: block;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: bold;
-  color: #333;
+  color: #303133;
 }
 
 .stat-value.online {
   color: #67c23a;
 }
 
-/* 平均响应时间卡片 */
-.response-time {
+/* 通用数值样式 */
+.time-value, .score-value {
+  font-size: 32px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 5px;
+  
+  .unit {
+    font-size: 14px;
+    font-weight: normal;
+    margin-left: 4px;
+  }
+}
+
+.primary { color: #409eff; }
+.success-text { color: #67c23a; }
+.warning-text { color: #e6a23c; }
+.danger-text { color: #f56c6c; }
+.warning { color: #e6a23c; }
+
+.time-desc, .score-desc {
+  font-size: 13px;
+  color: #909399;
   text-align: center;
   margin-bottom: 15px;
-}
-
-.time-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: #333;
-  margin-bottom: 5px;
-}
-
-.time-desc {
-  font-size: 12px;
-  color: #666;
-}
-
-.chart-container {
-  height: 100px;
-}
-
-/* 网络健康分卡片 */
-.health-score {
-  text-align: center;
-  margin-bottom: 15px;
-}
-
-.score-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: #333;
-  margin-bottom: 5px;
-}
-
-.score-desc {
-  font-size: 12px;
-  color: #666;
 }
 
 .health-status {
   text-align: center;
+  margin-top: 10px;
 }
 
-/* 平均故障恢复时间卡片 */
-.recovery-time {
-  text-align: center;
-  margin-bottom: 15px;
+.recovery-progress {
+  padding: 0 10px;
+  
+  .recovery-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #909399;
+    margin-top: 8px;
+  }
 }
 
-.recovery-chart {
-  height: 10px;
-  background-color: #f0f0f0;
-  border-radius: 5px;
-  position: relative;
-  overflow: hidden;
-}
-
-.chart-line {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: #e6a23c;
-}
-
-/* 网络中断次数趋势图表 */
+/* 图表卡片 */
 .network-chart-card {
-  margin-top: 20px;
+  border: none;
+  border-radius: 10px;
+  
+  .card-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
 }
 </style>
