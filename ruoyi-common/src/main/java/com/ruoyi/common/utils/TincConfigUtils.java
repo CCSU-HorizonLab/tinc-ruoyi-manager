@@ -173,6 +173,5 @@ public class TincConfigUtils {
         // 创建 3 个关键目录
         new File(basePath).mkdirs();          // 根目录
         new File(basePath + "/hosts").mkdirs();   // 公钥池
-        new File(basePath + "/clients").mkdirs(); // 打包临时仓
     }
 }

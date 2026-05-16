@@ -115,11 +115,96 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
         return rows;
     }
 
-    // ... update, delete 方法保持不变 ...
+
+    // ..., delete 方法保持不变 ...
     @Override
-    public int updateTincNetworkMange(TincNetworkMange tincNetworkMange) {
-        return tincNetworkMangeMapper.updateTincNetworkMange(tincNetworkMange);
+    @Transactional(rollbackFor = Exception.class)
+    public int updateTincNetworkMange(TincNetworkMange tincNetworkMange)
+    {
+        // 1. 查出修改前的老数据（因为我们需要知道网络名称，防止前端没有传过来完整实体）
+        TincNetworkMange oldNetwork = tincNetworkMangeMapper.selectTincNetworkMangeById(tincNetworkMange.getId());
+        if (oldNetwork == null) {
+            throw new RuntimeException("修改的网络不存在！");
+        }
+
+        // 2. 执行数据库更新
+        int rows = tincNetworkMangeMapper.updateTincNetworkMange(tincNetworkMange);
+
+        // 3. 同步更新本地/云端的 Tinc 配置文件
+        try {
+            String netName = oldNetwork.getNetworkName();
+
+            // A. 读取该网络下原本已经存在的 server_master 主机文件内容
+            String oldHostContent = TincConfigUtils.readHostFile(netName, "server_master");
+            if (oldHostContent == null || oldHostContent.isEmpty()) {
+                throw new RuntimeException("找不到服务器原配置文件，无法提取原有公钥！");
+            }
+
+            // B. 【核心步骤】从老文件内容中把原有的公钥提取出来，保证公钥不发生变更
+            // B. 【核心步骤】从老文件中提取纯净的 Base64 公钥（强行剥离破折号头尾和换行符）
+            String publicKey = "";
+            if (oldHostContent.contains("-----BEGIN")) {
+                String[] lines = oldHostContent.split("\n");
+                StringBuilder keyBuilder = new StringBuilder();
+                boolean inKeyBlock = false;
+
+                for (String line : lines) {
+                    // 如果遇到头部，开启采集模式，但跳过头部本身
+                    if (line.contains("-----BEGIN")) {
+                        inKeyBlock = true;
+                        continue;
+                    }
+                    // 如果遇到尾部，立刻停止采集
+                    if (line.contains("-----END")) {
+                        break;
+                    }
+                    // 如果在采集区内，把每行的公钥拼接起来（剔除空格和回车）
+                    if (inKeyBlock) {
+                        keyBuilder.append(line.trim());
+                    }
+                }
+                publicKey = keyBuilder.toString();
+
+                if (publicKey.isEmpty()) {
+                    throw new RuntimeException("提取到的公钥为空，请检查原文件格式！");
+                }
+            } else {
+                throw new RuntimeException("原配置文件中没有找到 -----BEGIN 头，无法安全提取！");
+            }
+
+            // C. 获取最新的接入服务器公网 IP（防止用户在修改时连带着把“接入服务器”也改了）
+            String currentServerName = tincNetworkMange.getServerName();
+            if (currentServerName == null || currentServerName.isEmpty()) {
+                currentServerName = oldNetwork.getServerName();
+            }
+
+            MangeServer query = new MangeServer();
+            query.setServerName(currentServerName);
+            List<MangeServer> serverList = mangeServerService.selectMangeServerList(query);
+            if (serverList == null || serverList.isEmpty()) {
+                throw new RuntimeException("系统里找不到名为 [" + currentServerName + "] 的服务器");
+            }
+            String realPublicIp = serverList.get(0).getServerIp();
+
+            // D. 计算出全新的中心服务器 Subnet (拿新修改的网段拼接 .1/32)
+            String newSegment = tincNetworkMange.getSegment();
+            if (newSegment == null || newSegment.isEmpty()) {
+                newSegment = oldNetwork.getSegment(); // 如果前端没传新网段，维持原状
+            }
+            String newSubnet = newSegment + ".1/32";
+
+            // E. 重新调用你写好的 createHostFile 工具类，用“新Subnet+新IP+老公钥”直接覆盖老文件
+            // 注意：如果你的工具类接收的 publicKey 参数会自动包裹头尾，请确保传入的字符串符合它内部的规则
+            TincConfigUtils.createHostFile(netName, "server_master", newSubnet, realPublicIp, publicKey);
+
+        } catch (Exception e) {
+            // 事务控制：文件要是改乱了或者抛异常了，直接回滚数据库，不骗人
+            throw new RuntimeException("同步修改Tinc配置文件失败: " + e.getMessage());
+        }
+
+        return rows;
     }
+
 
     @Override
     public int deleteTincNetworkMangeByIds(Long[] ids) {
