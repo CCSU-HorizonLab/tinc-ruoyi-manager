@@ -145,15 +145,15 @@ RuoYi-Vue-master
 │       └── TincNodeMangeController.java       # Tinc节点集群管理
 ├── ruoyi-system             # 系统服务模块
 │   └── src/main/java/com/ruoyi
-│       ├── manger           # 服务器集群服务
+│       ├── tinc_server     # 服务器集群服务
 │       │   ├── domain/MangeServer.java
 │       │   ├── mapper/MangeServerMapper.java
 │       │   └── service/IMangeServerService.java
-│       ├── TincNetworkMange # Tinc网络集群服务
+│       ├── tinc_network     # Tinc网络集群服务
 │       │   ├── domain/TincNetworkMange.java
 │       │   ├── mapper/TincNetworkMangeMapper.java
 │       │   └── service/ITincNetworkMangeService.java
-│       ├── node_manage      # Tinc节点集群服务
+│       ├── tinc_node        # Tinc节点集群服务
 │       │   ├── domain/TincNodeMange.java
 │       │   ├── mapper/TincNodeMangeMapper.java
 │       │   └── service/ITincNodeMangeService.java

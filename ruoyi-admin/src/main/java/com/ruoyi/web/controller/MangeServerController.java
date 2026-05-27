@@ -18,8 +18,8 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
-import com.ruoyi.manger.domain.MangeServer;
-import com.ruoyi.manger.service.IMangeServerService;
+import com.ruoyi.tinc_server.domain.MangeServer;
+import com.ruoyi.tinc_server.service.IMangeServerService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 
@@ -30,7 +30,7 @@ import com.ruoyi.common.core.page.TableDataInfo;
  * @date 2025-12-18
  */
 @RestController
-@RequestMapping("/manger/mangeServer")
+@RequestMapping({"/tinc/server", "/manger/mangeServer"})
 public class MangeServerController extends BaseController
 {
     @Autowired
@@ -127,7 +127,8 @@ public class MangeServerController extends BaseController
     /**
      * 删除服务器集群管理
      * 批量删除服务器集群管理信息
-     * 
+     *
+     *
      * @param Ids 服务器集群管理ID数组
      * @return 删除结果
      */

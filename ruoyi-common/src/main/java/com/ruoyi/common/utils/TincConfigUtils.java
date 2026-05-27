@@ -36,11 +36,21 @@ public class TincConfigUtils {
     }
 
     public static void createTincUpAndDown(String netName, String virtualIp) {
-        String upContent = "#!/bin/sh\nifconfig $INTERFACE " + virtualIp + " netmask 255.255.255.0\n";
-        writeToFile(netName, "tinc-up", upContent, true);
+        // Linux 启动脚本
+        String linuxUp = "#!/bin/sh\nifconfig $INTERFACE " + virtualIp + " netmask 255.255.255.0\n";
+        writeToFile(netName, "tinc-up", linuxUp, true);
 
-        String downContent = "#!/bin/sh\nifconfig $INTERFACE down\n";
-        writeToFile(netName, "tinc-down", downContent, true);
+        // Linux 停止脚本
+        String linuxDown = "#!/bin/sh\nifconfig $INTERFACE down\n";
+        writeToFile(netName, "tinc-down", linuxDown, true);
+
+        // Windows 启动脚本
+        String winUp = "@echo off\r\nnetsh interface ipv4 set address name=\"%INTERFACE%\" source=static address=" + virtualIp + " mask=255.255.255.0\r\n";
+        writeToFile(netName, "tinc-up.bat", winUp, false);
+
+        // Windows 停止脚本
+        String winDown = "@echo off\r\nnetsh interface ipv4 set address name=\"%INTERFACE%\" source=dhcp\r\n";
+        writeToFile(netName, "tinc-down.bat", winDown, false);
     }
 
     public static void createHostFile(String netName, String nodeName, String subnet, String publicKey) {

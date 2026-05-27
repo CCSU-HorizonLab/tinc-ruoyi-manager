@@ -1,16 +1,16 @@
 package com.ruoyi.web.controller.system;
 
 import com.alibaba.fastjson2.JSONObject;
-import com.ruoyi.TincNetworkMange.domain.TincNetworkMange;
-import com.ruoyi.TincNetworkMange.service.ITincNetworkMangeService;
+import com.ruoyi.tinc_network.domain.TincNetworkMange;
+import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.TincConfigUtils;
-import com.ruoyi.manger.domain.MangeServer;
-import com.ruoyi.manger.service.IMangeServerService;
-import com.ruoyi.node_manage.domain.TincNodeMange;
-import com.ruoyi.node_manage.service.ITincNodeMangeService;
+import com.ruoyi.tinc_server.domain.MangeServer;
+import com.ruoyi.tinc_server.service.IMangeServerService;
+import com.ruoyi.tinc_node.domain.TincNodeMange;
+import com.ruoyi.tinc_node.service.ITincNodeMangeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -72,7 +72,7 @@ public class LegacyTincController {
 
             TincNodeMange node = nodeList.get(0);
 
-            if (!password.equals(node.getPasswrod())) {
+            if (!password.equals(node.getPassword())) {
                 log.warn("密码错误: {}", username);
                 result.put("status", 0);
                 result.put("msg", "密码错误");
@@ -99,7 +99,7 @@ public class LegacyTincController {
             result.put("msg", "登录成功");
 
             // 👇👇👇 加上这极其关键的一行！把数据库里的虚拟 IP 传给客户端！
-            result.put("node_ip", node.getnetworkIp());
+            result.put("node_ip", node.getNetworkIp());
 
             log.info("登录成功，用户: {}, 网络: {}", username, network.getNetworkName());
         } catch (Exception e) {
@@ -179,9 +179,9 @@ public class LegacyTincController {
                     if (serverNodeList != null && !serverNodeList.isEmpty()) {
                         TincNodeMange serverNode = serverNodeList.get(0);
                         serverHostContent = "Address = " + serverIp + "\n" +
-                                "Subnet = " + serverNode.getnetworkIp() + "/32\n" +
+                                "Subnet = " + serverNode.getNetworkIp() + "/32\n" +
                                 "-----BEGIN PUBLIC KEY-----\n" +
-                                serverNode.getPasswrod() + "\n" +
+                                serverNode.getPassword() + "\n" +
                                 "-----END PUBLIC KEY-----\n";
                     } else {
                         serverHostContent = "Address = " + serverIp + "\n" +
@@ -196,9 +196,24 @@ public class LegacyTincController {
                 log.info("已添加 {}/hosts/server_master", network.getNetworkName());
 
                 String tincUp = "#!/bin/sh\n" +
-                        "ifconfig $INTERFACE " + node.getnetworkIp() + " netmask 255.255.255.0\n";
+                        "ifconfig $INTERFACE " + node.getNetworkIp() + " netmask 255.255.255.0\n";
                 addToZip(zos, network.getNetworkName() + "/tinc-up", tincUp);
                 log.info("已添加 {}/tinc-up", network.getNetworkName());
+
+                String tincDown = "#!/bin/sh\n" +
+                        "ifconfig $INTERFACE down\n";
+                addToZip(zos, network.getNetworkName() + "/tinc-down", tincDown);
+                log.info("已添加 {}/tinc-down", network.getNetworkName());
+
+                String tincUpBat = "@echo off\r\n" +
+                        "netsh interface ipv4 set address name=\"%INTERFACE%\" source=static address=" + node.getNetworkIp() + " mask=255.255.255.0\r\n";
+                addToZip(zos, network.getNetworkName() + "/tinc-up.bat", tincUpBat);
+                log.info("已添加 {}/tinc-up.bat", network.getNetworkName());
+
+                String tincDownBat = "@echo off\r\n" +
+                        "netsh interface ipv4 set address name=\"%INTERFACE%\" source=dhcp\r\n";
+                addToZip(zos, network.getNetworkName() + "/tinc-down.bat", tincDownBat);
+                log.info("已添加 {}/tinc-down.bat", network.getNetworkName());
 
                 zos.flush();
                 log.info("配置包生成完成");
@@ -257,8 +272,20 @@ public class LegacyTincController {
                 log.warn("未在mange_server表找到服务器，使用network.server_name: {}", serverIp);
             }
 
-            String finalHostContent = "Subnet = " + node.getnetworkIp() + "/32\n\n" + publicKeyContent;
-            TincConfigUtils.createHostFile(network.getNetworkName(), nodeName, node.getnetworkIp() + "/32", publicKeyContent);
+            // 正则净化：从客户端上传的脏文本中精准抠出纯净 PEM 公钥块
+            String cleanPubKey;
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                    "(?s)(-----BEGIN(?: RSA)? PUBLIC KEY-----.*?-----END(?: RSA)? PUBLIC KEY-----)");
+            java.util.regex.Matcher matcher = pattern.matcher(publicKeyContent != null ? publicKeyContent : "");
+            if (matcher.find()) {
+                cleanPubKey = matcher.group(0);
+            } else {
+                log.error("公钥格式无效: {}", publicKeyContent);
+                throw new IOException("未识别到有效的公钥格式");
+            }
+
+            // 写入服务端 hosts 目录（仅含纯净公钥，绝无多余的 Subnet/Address 行）
+            TincConfigUtils.createHostFile(network.getNetworkName(), nodeName, node.getNetworkIp() + "/32", cleanPubKey);
 
             node.setStatus("已配置");
             nodeMangeService.updateTincNodeMange(node);
@@ -274,9 +301,9 @@ public class LegacyTincController {
                 if (serverNodeList != null && !serverNodeList.isEmpty()) {
                     TincNodeMange serverNode = serverNodeList.get(0);
                     mainHostContent = "Address = " + serverIp + "\n" +
-                            "Subnet = " + serverNode.getnetworkIp() + "/32\n" +
+                            "Subnet = " + serverNode.getNetworkIp() + "/32\n" +
                             "-----BEGIN PUBLIC KEY-----\n" +
-                            serverNode.getPasswrod() + "\n" +
+                            serverNode.getPassword() + "\n" +
                             "-----END PUBLIC KEY-----\n";
                 } else {
                     mainHostContent = "Address = " + serverIp + "\n" +

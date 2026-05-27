@@ -16,8 +16,8 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
-import com.ruoyi.node_manage.domain.TincNodeMange;
-import com.ruoyi.node_manage.service.ITincNodeMangeService;
+import com.ruoyi.tinc_node.domain.TincNodeMange;
+import com.ruoyi.tinc_node.service.ITincNodeMangeService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.utils.file.FileUtils;
@@ -32,7 +32,7 @@ import java.io.IOException;
  * @date 2025-12-22
  */
 @RestController
-@RequestMapping("/node_mange/node_mange")
+@RequestMapping({"/tinc/node", "/node_mange/node_mange"})
 public class TincNodeMangeController extends BaseController
 {
     @Autowired
@@ -135,7 +135,7 @@ public class TincNodeMangeController extends BaseController
 
         // 5. 设置响应头 (告诉浏览器这是一个要下载的文件)
         response.setContentType("application/octet-stream");
-        FileUtils.setAttachmentResponseHeader(response, fileName); // 若依自带的文件头设置工具
+        FileUtils.setAttachmentResponseHeader(response, fileName);
 
         // 6. 开始写出数据流
         FileUtils.writeBytes(filePath, response.getOutputStream());

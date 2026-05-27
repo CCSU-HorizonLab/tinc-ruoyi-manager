@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.tinc_node.mapper.TincNodeMangeMapper">
+    
+    <resultMap type="TincNodeMange" id="TincNodeMangeResult">
+        <result property="id"    column="id"    />
+        <result property="userName"    column="use_name"    />
+        <result property="tableId"    column="table_ID"    />
+        <result property="serverName"    column="server_name"    />
+        <result property="networkName"    column="network_name"    />
+        <result property="password"    column="password"    />
+        <result property="nodeName"    column="node_name"    />
+        <result property="networkIp"    column="network_ip"    />
+        <result property="explanation"    column="explantion"    />
+        <result property="createTime"    column="create_time"    />
+        <result property="nodeStatus"    column="node_status"    />
+        <result property="status"    column="status"    />
+    </resultMap>
+
+    <sql id="selectTincNodeMangeVo">
+        select id, use_name, table_ID, server_name, network_name, password, node_name, network_ip, explantion, create_time, node_status, status from tinc_node_mange
+    </sql>
+
+    <select id="selectTincNodeMangeList" parameterType="TincNodeMange" resultMap="TincNodeMangeResult">
+        <include refid="selectTincNodeMangeVo"/>
+        <where>  
+            <if test="userName != null  and userName != ''"> and use_name like concat('%', #{userName}, '%')</if>
+            <if test="tableId != null  and tableId != ''"> and table_ID = #{tableId}</if>
+            <if test="serverName != null  and serverName != ''"> and server_name like concat('%', #{serverName}, '%')</if>
+            <if test="networkName != null  and networkName != ''"> and network_name like concat('%', #{networkName}, '%')</if>
+            <if test="nodeName != null  and nodeName != ''"> and node_name like concat('%', #{nodeName}, '%')</if>
+            <if test="networkIp != null  and networkIp != ''"> and network_ip = #{networkIp}</if>
+            <if test="nodeStatus != null  and nodeStatus != ''"> and node_status = #{nodeStatus}</if>
+            <if test="status != null  and status != ''"> and status = #{status}</if>
+        </where>
+    </select>
+    
+    <select id="selectTincNodeMangeById" parameterType="Long" resultMap="TincNodeMangeResult">
+        <include refid="selectTincNodeMangeVo"/>
+        where id = #{id}
+    </select>
+
+    <insert id="insertTincNodeMange" parameterType="TincNodeMange" useGeneratedKeys="true" keyProperty="id">
+        insert into tinc_node_mange
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="userName != null and userName != ''">use_name,</if>
+            <if test="tableId != null and tableId != ''">table_ID,</if>
+            <if test="serverName != null and serverName != ''">server_name,</if>
+            <if test="networkName != null and networkName != ''">network_name,</if>
+            <if test="password != null and password != ''">password,</if>
+            <if test="nodeName != null and nodeName != ''">node_name,</if>
+            <if test="networkIp != null and networkIp != ''">network_ip,</if>
+            <if test="explanation != null and explanation != ''">explantion,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="nodeStatus != null and nodeStatus != ''">node_status,</if>
+            <if test="status != null and status != ''">status,</if>
+         </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="userName != null and userName != ''">#{userName},</if>
+            <if test="tableId != null and tableId != ''">#{tableId},</if>
+            <if test="serverName != null and serverName != ''">#{serverName},</if>
+            <if test="networkName != null and networkName != ''">#{networkName},</if>
+            <if test="password != null and password != ''">#{password},</if>
+            <if test="nodeName != null and nodeName != ''">#{nodeName},</if>
+            <if test="networkIp != null and networkIp != ''">#{networkIp},</if>
+            <if test="explanation != null and explanation != ''">#{explanation},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="nodeStatus != null and nodeStatus != ''">#{nodeStatus},</if>
+            <if test="status != null and status != ''">#{status},</if>
+         </trim>
+    </insert>
+
+    <update id="updateTincNodeMange" parameterType="TincNodeMange">
+        update tinc_node_mange
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="userName != null and userName != ''">use_name = #{userName},</if>
+            <if test="tableId != null and tableId != ''">table_ID = #{tableId},</if>
+            <if test="serverName != null and serverName != ''">server_name = #{serverName},</if>
+            <if test="networkName != null and networkName != ''">network_name = #{networkName},</if>
+            <if test="password != null and password != ''">password = #{password},</if>
+            <if test="nodeName != null and nodeName != ''">node_name = #{nodeName},</if>
+            <if test="networkIp != null and networkIp != ''">network_ip = #{networkIp},</if>
+            <if test="explanation != null and explanation != ''">explantion = #{explanation},</if>
+            <if test="createTime != null">create_time = #{createTime},</if>
+            <if test="nodeStatus != null and nodeStatus != ''">node_status = #{nodeStatus},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+        </trim>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteTincNodeMangeById" parameterType="Long">
+        delete from tinc_node_mange where id = #{id}
+    </delete>
+
+    <delete id="deleteTincNodeMangeByIds" parameterType="String">
+        delete from tinc_node_mange where id in 
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

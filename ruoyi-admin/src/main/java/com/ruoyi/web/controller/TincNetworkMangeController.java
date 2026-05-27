@@ -16,8 +16,8 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
-import com.ruoyi.TincNetworkMange.domain.TincNetworkMange;
-import com.ruoyi.TincNetworkMange.service.ITincNetworkMangeService;
+import com.ruoyi.tinc_network.domain.TincNetworkMange;
+import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 
@@ -28,7 +28,7 @@ import com.ruoyi.common.core.page.TableDataInfo;
  * @date 2025-12-20
  */
 @RestController
-@RequestMapping("/TincNetworkMange/TincNetworkMange")
+@RequestMapping({"/tinc/network", "/TincNetworkMange/TincNetworkMange"})
 public class TincNetworkMangeController extends BaseController
 {
     @Autowired

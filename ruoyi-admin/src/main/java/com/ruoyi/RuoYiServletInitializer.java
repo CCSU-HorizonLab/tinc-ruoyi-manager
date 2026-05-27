@@ -15,4 +15,5 @@ public class RuoYiServletInitializer extends SpringBootServletInitializer
     {
         return application.sources(RuoYiApplication.class);
     }
+
 }
