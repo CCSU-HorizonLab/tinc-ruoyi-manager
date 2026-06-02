@@ -295,7 +295,7 @@ npm run build:prod
 
 ### 访问系统
 
-- 地址：`http://localhost:80`（前端）、`http://localhost:8081`（后端 API）
+- 地址：`http://localhost:83`（前端）、`http://localhost:8081`（后端 API）
 - 默认账号：`admin` / `admin123`
 
 ---
