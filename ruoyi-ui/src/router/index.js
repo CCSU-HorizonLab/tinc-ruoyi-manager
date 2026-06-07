@@ -47,11 +47,6 @@ export const constantRoutes = [
     hidden: true
   },
   {
-    path: '/register',
-    component: () => import('@/views/register'),
-    hidden: true
-  },
-  {
     path: '/404',
     component: () => import('@/views/error/404'),
     hidden: true
@@ -64,12 +59,13 @@ export const constantRoutes = [
   {
     path: '',
     component: Layout,
-    redirect: 'index',
+    redirect: '/network/status',
     children: [
       {
         path: 'index',
-        component: () => import('@/views/index'),
+        component: () => import('@/views/index_v1'),
         name: 'Index',
+        hidden: true,
         meta: { title: '首页', icon: 'dashboard', affix: true }
       }
     ]
@@ -116,81 +112,53 @@ export const constantRoutes = [
         meta: { title: '个人中心', icon: 'user' }
       }
     ]
+  },
+  {
+    path: '/tinc-server',
+    component: Layout,
+    hidden: true,
+    meta: { title: '服务器管理', icon: 'server' },
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/tinc/server/index'),
+        name: 'TincServer',
+        meta: { title: '服务器管理', icon: 'server' }
+      }
+    ]
+  },
+  {
+    path: '/tinc-network',
+    component: Layout,
+    hidden: true,
+    meta: { title: '内网管理', icon: 'network' },
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/tinc/network/index'),
+        name: 'TincNetwork',
+        meta: { title: '内网管理', icon: 'network' }
+      }
+    ]
+  },
+  {
+    path: '/tinc-node',
+    component: Layout,
+    hidden: true,
+    meta: { title: '节点管理', icon: 'node' },
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/tinc/node/index'),
+        name: 'TincNode',
+        meta: { title: '节点管理', icon: 'node' }
+      }
+    ]
   }
 ]
 
 // 动态路由，基于用户权限动态去加载
 export const dynamicRoutes = [
-  {
-    path: '/system/user-auth',
-    component: Layout,
-    hidden: true,
-    permissions: ['system:user:edit'],
-    children: [
-      {
-        path: 'role/:userId(\\d+)',
-        component: () => import('@/views/system/user/authRole'),
-        name: 'AuthRole',
-        meta: { title: '分配角色', activeMenu: '/system/user' }
-      }
-    ]
-  },
-  {
-    path: '/system/role-auth',
-    component: Layout,
-    hidden: true,
-    permissions: ['system:role:edit'],
-    children: [
-      {
-        path: 'user/:roleId(\\d+)',
-        component: () => import('@/views/system/role/authUser'),
-        name: 'AuthUser',
-        meta: { title: '分配用户', activeMenu: '/system/role' }
-      }
-    ]
-  },
-  {
-    path: '/system/dict-data',
-    component: Layout,
-    hidden: true,
-    permissions: ['system:dict:list'],
-    children: [
-      {
-        path: 'index/:dictId(\\d+)',
-        component: () => import('@/views/system/dict/data'),
-        name: 'Data',
-        meta: { title: '字典数据', activeMenu: '/system/dict' }
-      }
-    ]
-  },
-  {
-    path: '/monitor/job-log',
-    component: Layout,
-    hidden: true,
-    permissions: ['monitor:job:list'],
-    children: [
-      {
-        path: 'index/:jobId(\\d+)',
-        component: () => import('@/views/monitor/job/log'),
-        name: 'JobLog',
-        meta: { title: '调度日志', activeMenu: '/monitor/job' }
-      }
-    ]
-  },
-  {
-    path: '/tool/gen-edit',
-    component: Layout,
-    hidden: true,
-    permissions: ['tool:gen:edit'],
-    children: [
-      {
-        path: 'index/:tableId(\\d+)',
-        component: () => import('@/views/tool/gen/editTable'),
-        name: 'GenEdit',
-        meta: { title: '修改生成配置', activeMenu: '/tool/gen' }
-      }
-    ]
-  }
 ]
 
 // 防止连续点击多次路由报错
