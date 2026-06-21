@@ -27,15 +27,6 @@ public class UserConstants
     /** 角色封禁状态 */
     public static final String ROLE_DISABLE = "1";
 
-    /** 部门正常状态 */
-    public static final String DEPT_NORMAL = "0";
-
-    /** 部门停用状态 */
-    public static final String DEPT_DISABLE = "1";
-
-    /** 字典正常状态 */
-    public static final String DICT_NORMAL = "0";
-
     /** 是否为系统默认（是） */
     public static final String YES = "Y";
 
@@ -59,9 +50,6 @@ public class UserConstants
     
     /** ParentView组件标识 */
     public final static String PARENT_VIEW = "ParentView";
-
-    /** InnerLink组件标识 */
-    public final static String INNER_LINK = "InnerLink";
 
     /** 校验是否唯一的返回标识 */
     public final static boolean UNIQUE = true;

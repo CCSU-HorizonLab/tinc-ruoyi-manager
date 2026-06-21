@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
-import com.ruoyi.common.annotation.DataScope;
+
 import com.ruoyi.common.constant.UserConstants;
 import com.ruoyi.common.core.domain.entity.SysRole;
 import com.ruoyi.common.core.domain.entity.SysUser;
@@ -462,7 +462,6 @@ public class SysUserServiceImpl implements ISysUserService
                     checkUserAllowed(u);
                     checkUserDataScope(u.getUserId());
                     user.setUserId(u.getUserId());
-                    user.setDeptId(u.getDeptId());
                     user.setUpdateBy(operName);
                     userMapper.updateUser(user);
                     successNum++;

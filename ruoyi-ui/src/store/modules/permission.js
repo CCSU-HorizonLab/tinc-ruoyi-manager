@@ -3,7 +3,6 @@ import router, { constantRoutes, dynamicRoutes } from '@/router'
 import { getRouters } from '@/api/menu'
 import Layout from '@/layout/index'
 import ParentView from '@/components/ParentView'
-import InnerLink from '@/layout/components/InnerLink'
 
 const permission = {
   state: {
@@ -40,7 +39,7 @@ const permission = {
           const rewriteRoutes = filterAsyncRouter(rdata, false, true)
           const asyncRoutes = filterDynamicRoutes(dynamicRoutes)
           rewriteRoutes.push({ path: '*', redirect: '/404', hidden: true })
-          router.addRoutes(asyncRoutes)
+          router.addRoutes([...asyncRoutes, ...rewriteRoutes])
           commit('SET_ROUTES', rewriteRoutes)
           commit('SET_SIDEBAR_ROUTERS', constantRoutes.concat(sidebarRoutes))
           commit('SET_DEFAULT_ROUTES', sidebarRoutes)
@@ -64,8 +63,6 @@ function filterAsyncRouter(asyncRouterMap, lastRouter = false, type = false) {
         route.component = Layout
       } else if (route.component === 'ParentView') {
         route.component = ParentView
-      } else if (route.component === 'InnerLink') {
-        route.component = InnerLink
       } else {
         route.component = loadView(route.component)
       }

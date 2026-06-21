@@ -257,9 +257,17 @@ import { treeselect as menuTreeselect, roleMenuTreeselect } from "@/api/system/m
 
 export default {
   name: "Role",
-  dicts: ['sys_normal_disable'],
   data() {
     return {
+      // 字典数据（本地）
+      dict: {
+        type: {
+          sys_normal_disable: [
+            { value: '0', label: '正常' },
+            { value: '1', label: '停用' }
+          ]
+        }
+      },
       // 遮罩层
       loading: true,
       // 选中数组

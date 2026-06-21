@@ -9,12 +9,14 @@
       </div>
       <app-main/>
       <settings ref="settingRef"/>
+      <AiAssistant />
     </div>
   </div>
 </template>
 
 <script>
 import { AppMain, Navbar, Settings, Sidebar, TagsView } from './components'
+import AiAssistant from '@/components/AiAssistant'
 import ResizeMixin from './mixin/ResizeHandler'
 import { mapState } from 'vuex'
 import variables from '@/assets/styles/variables.scss'
@@ -26,6 +28,7 @@ export default {
     Navbar,
     Settings,
     Sidebar,
+    AiAssistant,
     TagsView
   },
   mixins: [ResizeMixin],

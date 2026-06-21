@@ -37,21 +37,6 @@ public class SecurityUtils
     }
 
     /**
-     * 获取部门ID
-     **/
-    public static Long getDeptId()
-    {
-        try
-        {
-            return getLoginUser().getDeptId();
-        }
-        catch (Exception e)
-        {
-            throw new ServiceException("获取部门ID异常,请联系管理员", HttpStatus.UNAUTHORIZED);
-        }
-    }
-
-    /**
      * 获取用户账户
      **/
     public static String getUsername()

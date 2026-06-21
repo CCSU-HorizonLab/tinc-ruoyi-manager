@@ -7,7 +7,7 @@ function resolve(dir) {
 
 const CompressionPlugin = require('compression-webpack-plugin')
 
-const name = process.env.VUE_APP_TITLE || '若依管理系统' // 网页标题
+const name = process.env.VUE_APP_TITLE || '后台管理系统' // 网页标题
 
 const baseUrl = 'http://localhost:8081' // 后端接口
 
@@ -76,6 +76,30 @@ module.exports = {
       })
     ],
   },
+  devServer: {
+      host: '0.0.0.0',
+      port: port,
+      open: true,
+      proxy: {
+        // 后端代理 (8080或8081)
+        [process.env.VUE_APP_BASE_API]: {
+          target: `http://localhost:8081`,
+          changeOrigin: true,
+          pathRewrite: {
+            ['^' + process.env.VUE_APP_BASE_API]: ''
+          }
+        },
+        // ===== 【新增】AI 助手的代理 (转发给 Python FastAPI) =====
+        '/ai-api': {
+          target: `http://localhost:8082`,
+          changeOrigin: true,
+          pathRewrite: {
+            '^/ai-api': '/ai-api' 
+          }
+        }
+      },
+      disableHostCheck: true
+    },
   chainWebpack(config) {
     config.plugins.delete('preload') // TODO: need test
     config.plugins.delete('prefetch') // TODO: need test

@@ -67,7 +67,7 @@
       <el-table-column prop="component" label="组件路径" :show-overflow-tooltip="true"></el-table-column>
       <el-table-column prop="status" label="状态" width="80">
         <template slot-scope="scope">
-          <dict-tag :options="dict.type.sys_normal_disable" :value="scope.row.status"/>
+          <el-tag :type="scope.row.status == '0' ? 'success' : 'danger'">{{ scope.row.status == '0' ? '正常' : '停用' }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="创建时间" align="center" prop="createTime">
@@ -306,10 +306,22 @@ import IconSelect from "@/components/IconSelect"
 
 export default {
   name: "Menu",
-  dicts: ['sys_show_hide', 'sys_normal_disable'],
   components: { Treeselect, IconSelect },
   data() {
     return {
+      // 字典数据（本地）
+      dict: {
+        type: {
+          sys_show_hide: [
+            { value: '0', label: '显示' },
+            { value: '1', label: '隐藏' }
+          ],
+          sys_normal_disable: [
+            { value: '0', label: '正常' },
+            { value: '1', label: '停用' }
+          ]
+        }
+      },
       // 遮罩层
       loading: true,
       // 显示搜索条件

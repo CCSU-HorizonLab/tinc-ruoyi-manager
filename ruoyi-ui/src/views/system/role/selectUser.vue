@@ -32,7 +32,7 @@
         <el-table-column label="手机" prop="phonenumber" :show-overflow-tooltip="true" />
         <el-table-column label="状态" align="center" prop="status">
           <template slot-scope="scope">
-            <dict-tag :options="dict.type.sys_normal_disable" :value="scope.row.status"/>
+            <el-tag :type="scope.row.status == '0' ? 'success' : 'danger'">{{ scope.row.status == '0' ? '正常' : '停用' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="创建时间" align="center" prop="createTime" width="180">
@@ -59,7 +59,6 @@
 <script>
 import { unallocatedUserList, authUserSelectAll } from "@/api/system/role"
 export default {
-  dicts: ['sys_normal_disable'],
   props: {
     // 角色编号
     roleId: {

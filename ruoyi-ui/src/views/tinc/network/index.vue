@@ -77,7 +77,7 @@
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
-    <el-table v-loading="loading" :data="TincNetworkMangeList" @selection-change="handleSelectionChange">
+    <el-table v-loading="loading" :data="networkList" @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="55" align="center" />
       <el-table-column label="ids" align="center" prop="id" />
       <el-table-column label="用户" align="center" prop="rootName" />
@@ -110,7 +110,7 @@
         </template>
       </el-table-column>
     </el-table>
-    
+
     <pagination
       v-show="total>0"
       :total="total"
@@ -119,7 +119,7 @@
       @pagination="getList"
     />
 
-    <!-- 添加或修改内网对话框 -->
+    <!-- 添加或修改内网管理对话框 -->
   <el-dialog :title="title" :visible.sync="open" width="500px" append-to-body>
   <el-form ref="form" :model="form" :rules="rules" label-width="80px">
     <el-form-item label="接入服务器" prop="serverName">
@@ -153,32 +153,22 @@
 </template>
 
 <script>
-import { listTincNetworkMange, getTincNetworkMange, delTincNetworkMange, addTincNetworkMange, updateTincNetworkMange } from "@/api/TincNetworkMange/TincNetworkMange"
-import { listManger } from "@/api/manger/manger"
+import { listNetwork, getNetwork, delNetwork, addNetwork, updateNetwork } from "@/api/tinc/network"
+import { listServer } from "@/api/tinc/server"
 
 export default {
-  name: "TincNetworkMange",
+  name: "Network",
   data() {
     return {
-      // 遮罩层
       loading: true,
-      // 选中数组
       ids: [],
-      // 非单个禁用
       single: true,
-      // 非多个禁用
       multiple: true,
-      // 显示搜索条件
       showSearch: true,
-      // 总条数
       total: 0,
-      // Tinc内网集群管理表格数据
-      TincNetworkMangeList: [],
-      // 弹出层标题
+      networkList: [],
       title: "",
-      // 是否显示弹出层
       open: false,
-      // 查询参数
       queryParams: {
         pageNum: 1,
         pageSize: 10,
@@ -189,9 +179,7 @@ export default {
         nodes: null,
         networkStatus: null,
       },
-      // 表单参数
       form: {},
-      // 表单校验
       rules: {
         serverName: [
           { required: true, message: "接入服务器不能为空", trigger: "blur" }
@@ -217,15 +205,10 @@ export default {
           { required: true, message: "内网状态不能为空", trigger: "change" }
         ],
       },
-      // 是否正在提交
       isSubmitting: false,
-      //接入服务器
       serverOptions: [],
-      //当前服务器端口和网段范围
       currentServer: null,
-      //网段
       segmentOptions: [],
-      //端口
       portOptions: []
     }
   },
@@ -234,30 +217,21 @@ export default {
     this.getServerOptions();
   },
   activated() {
-    this.getServerOptions(); // 只要切回页面，就刷新服务器列表
+    this.getServerOptions();
   },
   methods: {
-    /** 查询Tinc内网集群管理列表 */
     getList() {
       this.loading = true
-      listTincNetworkMange(this.queryParams).then(response => {
-        this.TincNetworkMangeList = response.rows
+      listNetwork(this.queryParams).then(response => {
+        this.networkList = response.rows
         this.total = response.total
-        // 调试：查看返回的数据结构
-        console.log('返回的数据列表:', response.rows);
-        if (response.rows.length > 0) {
-          console.log('第一条数据的结构:', response.rows[0]);
-          console.log('第一条数据的rootName:', response.rows[0].rootName);
-        }
         this.loading = false
       })
     },
-    // 取消按钮
     cancel() {
       this.open = false
       this.reset()
     },
-    // 表单重置
     reset() {
       this.form = {
         id: null,
@@ -273,30 +247,22 @@ export default {
       }
       this.resetForm("form")
     },
-    /** 搜索按钮操作 */
     handleQuery() {
       this.queryParams.pageNum = 1
       this.getList()
     },
-    /** 重置按钮操作 */
     resetQuery() {
       this.resetForm("queryForm")
       this.handleQuery()
     },
-    // 多选框选中数据
     handleSelectionChange(selection) {
       this.ids = selection.map(item => item.id)
-      this.single = selection.length!==1
+      this.single = selection.length !== 1
       this.multiple = !selection.length
     },
-    /** 新增按钮操作 */
     handleAdd() {
       this.reset()
-      // 修复：将getter名称从username改为name，确保正确获取当前登录用户
       this.form.rootName = this.$store.getters.name;
-      console.log('当前登录用户:', this.$store.getters.name);
-      console.log('表单中的rootName:', this.form.rootName);
-      // Reset server related state for new entry
       this.currentServer = null;
       this.segmentOptions = [];
       this.portOptions = [];
@@ -304,37 +270,29 @@ export default {
       this.open = true
       this.title = "添加内网"
     },
-    /** 修改按钮操作 */
     handleUpdate(row) {
       this.reset()
       const id = row.id || this.ids
-      getTincNetworkMange(id).then(response => {
+      getNetwork(id).then(response => {
         this.form = response.data
-        // 保存当前端口和网段值
         const savedPort = this.form.port;
         const savedSegment = this.form.segment;
-        // 触发服务器变更事件，加载对应的端口和网段选项
         this.onServerChange(this.form.serverName);
-        // 恢复保存的端口和网段值
         this.form.port = savedPort;
         this.form.segment = savedSegment;
         this.open = true
         this.title = "修改内网"
       })
     },
-    /** 提交按钮 */
     submitForm() {
       if (this.isSubmitting) return;
       this.isSubmitting = true;
-      // 确保rootName始终为当前登录用户
       this.form.rootName = this.$store.getters.name;
-      console.log('当前登录用户:', this.$store.getters.name);
-      console.log('提交时的rootName:', this.form.rootName);
-      
+
       this.$refs["form"].validate(valid => {
         if (valid) {
           if (this.form.id != null) {
-            updateTincNetworkMange(this.form).then(response => {
+            updateNetwork(this.form).then(response => {
               this.$modal.msgSuccess("修改成功")
               this.open = false
               this.getList()
@@ -344,7 +302,7 @@ export default {
               this.isSubmitting = false;
             })
           } else {
-            addTincNetworkMange(this.form).then(response => {
+            addNetwork(this.form).then(response => {
               this.$modal.msgSuccess("新增成功")
               this.open = false
               this.getList()
@@ -359,57 +317,40 @@ export default {
         }
       })
     },
-    /** 删除按钮操作 */
     handleDelete(row) {
       const ids = row.id || this.ids
-      this.$modal.confirm('是否确认删除Tinc内网集群管理编号为"' + ids + '"的数据项？').then(function() {
-        return delTincNetworkMange(ids)
+      this.$modal.confirm('是否确认删除内网编号为"' + ids + '"的数据项？').then(function() {
+        return delNetwork(ids)
       }).then(() => {
         this.getList()
         this.$modal.msgSuccess("删除成功")
       }).catch(() => {})
     },
-    /** 导出按钮操作 */
     handleExport() {
-      this.download('TincNetworkMange/TincNetworkMange/export', {
+      this.download('tinc/network/export', {
         ...this.queryParams
-      }, `TincNetworkMange_${new Date().getTime()}.xlsx`)
+      }, `network_${new Date().getTime()}.xlsx`)
     },
-    
-    /**
-     * 获取服务器列表
-     * 为前端接入服务器选项框提供数据来源
-     * 从服务器集群管理API获取所有可用服务器
-     */
+
     getServerOptions(){
-      listManger({ pageNum: 1, pageSize: 10000 }).then(response => {
+      listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
         this.serverOptions = response.rows;
       }).catch(error => {
         console.error('获取服务器列表失败:', error);
         this.$modal.msgError('获取服务器列表失败');
       });
     },
-    
-    /**
-     * 服务器选择变化事件处理
-     * 当用户选择不同的服务器时，动态生成该服务器可用的端口和网段选项
-     * 
-     * @param {string} serverName - 选中的服务器名称
-     */
+
     onServerChange(serverName){
-      // 根据服务器名称查找对应的服务器信息
-      const server = this.serverOptions.find(s => s.serverName === serverName); 
+      const server = this.serverOptions.find(s => s.serverName === serverName);
       this.currentServer = server;
-      
-      // 重置表单中的端口和网段，因为服务器变化后可用范围可能不同
+
       this.form.port = '';
       this.form.segment = '';
-      
+
       if(server){
         try {
-          // 根据服务器的起始和结束网段生成网段选项
           this.segmentOptions = this.generateSegmentOptions(server.startInterat, server.endInterat);
-          // 根据服务器的起始和结束端口生成端口选项
           this.portOptions = this.generatePortOptions(server.startPort, server.endPort);
         } catch (error) {
           console.error('生成选项失败:', error);
@@ -417,39 +358,26 @@ export default {
           this.portOptions = [];
         }
       }else{
-        // 如果没有选中服务器，清空端口和网段选项
         this.segmentOptions = [];
         this.portOptions = [];
       }
     },
-    
-    /**
-     * 生成网段选项列表
-     * 根据服务器的起始和结束网段生成完整的网段选项
-     * 假设网段格式为"192.168.x"，生成从startInterat到endInterat的所有网段
-     * 
-     * @param {string} startInterat - 起始网段，如"192.168.1"
-     * @param {string} endInterat - 结束网段，如"192.168.3"
-     * @return {Array} 网段选项列表，每个选项包含label和value
-     */
+
     generateSegmentOptions(startInterat, endInterat) {
       const segments = [];
       if (!startInterat || !endInterat) return segments;
-      
+
       try {
-        // 将网段字符串分割为数组，如"192.168.1" → ["192", "168", "1"]
         const startParts = startInterat.split('.');
         const endParts = endInterat.split('.');
-        
-        // 简化处理，只处理相同前缀的情况（如192.168.x）
-        if (startParts.length === 3 && endParts.length === 3 && 
+
+        if (startParts.length === 3 && endParts.length === 3 &&
             startParts[0] === endParts[0] && startParts[1] === endParts[1]) {
-          
+
           const start = parseInt(startParts[2]);
           const end = parseInt(endParts[2]);
-          
+
           if (!isNaN(start) && !isNaN(end) && start <= end) {
-            // 生成从起始网段到结束网段的所有网段选项
             for (let i = start; i <= end; i++) {
               segments.push({
                 label: `${startParts[0]}.${startParts[1]}.${i}`,
@@ -461,33 +389,22 @@ export default {
       } catch (error) {
         console.error('生成网段选项失败:', error);
       }
-      
+
       return segments;
     },
-    
-    /**
-     * 生成端口选项列表
-     * 根据服务器的起始和结束端口生成完整的端口选项
-     * 限制最多生成100个端口，避免选项过多影响性能
-     * 
-     * @param {string|number} startPort - 起始端口
-     * @param {string|number} endPort - 结束端口
-     * @return {Array} 端口选项列表，每个选项包含label和value
-     */
+
     generatePortOptions(startPort, endPort) {
       const ports = [];
       if (!startPort || !endPort) return ports;
-      
+
       try {
         const start = parseInt(startPort);
         const end = parseInt(endPort);
-        
+
         if (!isNaN(start) && !isNaN(end) && start <= end) {
-          // 限制生成的端口数量，避免选项过多导致页面卡顿
           const maxPorts = 100;
           const actualEnd = Math.min(end, start + maxPorts);
-          
-          // 生成从起始端口到结束端口的所有端口选项
+
           for (let i = start; i <= actualEnd; i++) {
             ports.push({
               label: `${i}`,
@@ -498,59 +415,56 @@ export default {
       } catch (error) {
         console.error('生成端口选项失败:', error);
       }
-      
+
       return ports;
     },
-    
-    // 验证端口是否在服务器范围内
+
     validatePort(rule, value, callback) {
       if (!value) {
         return callback(new Error('端口不能为空'));
       }
-      
+
       if (this.currentServer) {
         const port = parseInt(value);
         const startPort = parseInt(this.currentServer.startPort);
         const endPort = parseInt(this.currentServer.endPort);
-        
+
         if (isNaN(port) || port < startPort || port > endPort) {
           return callback(new Error(`端口必须在 ${startPort} 到 ${endPort} 之间`));
         }
       }
-      
+
       callback();
     },
-    
-    // 验证网段是否在服务器范围内
+
     validateSegment(rule, value, callback) {
       if (!value) {
         return callback(new Error('网段不能为空'));
       }
-      
+
       if (this.currentServer) {
         const startInterat = this.currentServer.startInterat;
         const endInterat = this.currentServer.endInterat;
-        
-        // 简单验证：检查网段是否在范围内
+
         const startParts = startInterat.split('.');
         const endParts = endInterat.split('.');
         const valueParts = value.split('.');
-        
+
         if (startParts.length === 3 && endParts.length === 3 && valueParts.length === 3) {
           if (startParts[0] === endParts[0] && startParts[0] === valueParts[0] &&
               startParts[1] === endParts[1] && startParts[1] === valueParts[1]) {
-            
+
             const start = parseInt(startParts[2]);
             const end = parseInt(endParts[2]);
             const valueNum = parseInt(valueParts[2]);
-            
+
             if (isNaN(valueNum) || valueNum < start || valueNum > end) {
               return callback(new Error(`网段必须在 ${startInterat} 到 ${endInterat} 之间`));
             }
           }
         }
       }
-      
+
       callback();
     }
   }

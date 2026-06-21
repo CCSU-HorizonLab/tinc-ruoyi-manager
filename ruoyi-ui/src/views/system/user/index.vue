@@ -201,7 +201,7 @@
 </template>
 
 <script>
-import { listUser, getUser, delUser, addUser, updateUser, resetUserPwd, changeUserStatus, deptTreeSelect } from "@/api/system/user"
+import { listUser, getUser, delUser, addUser, updateUser, resetUserPwd, changeUserStatus } from "@/api/system/user"
 import { getToken } from "@/utils/auth"
 import Treeselect from "@riophae/vue-treeselect"
 import "@riophae/vue-treeselect/dist/vue-treeselect.css"
@@ -210,7 +210,6 @@ import "splitpanes/dist/splitpanes.css"
 
 export default {
   name: "User",
-  dicts: ['sys_normal_disable', 'sys_user_sex'],
   components: { Treeselect, Splitpanes, Pane },
   data() {
     return {
@@ -230,6 +229,20 @@ export default {
       userList: null,
       // 弹出层标题
       title: "",
+      // 字典数据（本地）
+      dict: {
+        type: {
+          sys_normal_disable: [
+            { value: '0', label: '正常' },
+            { value: '1', label: '停用' }
+          ],
+          sys_user_sex: [
+            { value: '0', label: '男' },
+            { value: '1', label: '女' },
+            { value: '2', label: '未知' }
+          ]
+        }
+      },
       // 所有部门树选项
       deptOptions: undefined,
       // 过滤掉已禁用部门树选项
@@ -326,9 +339,7 @@ export default {
   created() {
     this.getList()
     this.getDeptTree()
-    this.getConfigKey("sys.user.initPassword").then(response => {
-      this.initPassword = response.msg
-    })
+    this.initPassword = '123456'
   },
   methods: {
     /** 查询用户列表 */
@@ -343,10 +354,8 @@ export default {
     },
     /** 查询部门下拉树结构 */
     getDeptTree() {
-      deptTreeSelect().then(response => {
-        this.deptOptions = response.data
-        this.enabledDeptOptions = this.filterDisabledDept(JSON.parse(JSON.stringify(response.data)))
-      })
+      this.deptOptions = []
+      this.enabledDeptOptions = []
     },
     // 过滤禁用的部门
     filterDisabledDept(deptList) {

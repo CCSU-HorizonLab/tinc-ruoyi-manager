@@ -254,8 +254,8 @@
 <script>
 import LineChart from './LineChart.vue'
 import BarChart from './BarChart.vue'
-import { listManger } from '@/api/manger/manger'
-import { listTincNetworkMange } from '@/api/TincNetworkMange/TincNetworkMange'
+import { listServer } from '@/api/tinc/server'
+import { listNetwork } from '@/api/tinc/network'
 import { getSingleNetworkMonitor } from '@/api/monitor/networkMonitor'
 
 export default {
@@ -328,17 +328,17 @@ export default {
   methods: {
     /** 获取服务器列表 */
     getServerOptions() {
-      listManger({}).then(response => {
+      listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
         this.servers = response.rows.map(server => ({
           value: server.serverName,
           label: server.serverName
         }));
       })
     },
-    
+
     /** 根据服务器获取内网列表 */
     getNetworksByServer(serverName) {
-      listTincNetworkMange({ serverName: serverName }).then(response => {
+      listNetwork({ serverName: serverName }).then(response => {
         this.networks = response.rows.map(network => ({
           value: network.id,
           label: network.networkName
@@ -611,8 +611,8 @@ export default {
 <script>
 import LineChart from './LineChart.vue'
 import BarChart from './BarChart.vue'
-import { listManger } from '@/api/manger/manger'
-import { listTincNetworkMange } from '@/api/TincNetworkMange/TincNetworkMange'
+import { listServer } from '@/api/tinc/server'
+import { listNetwork } from '@/api/tinc/network'
 import { getSingleNetworkMonitor } from '@/api/monitor/networkMonitor'
 
 export default {
@@ -664,17 +664,17 @@ export default {
   methods: {
     /** 获取服务器列表 */
     getServerOptions() {
-      listManger({}).then(response => {
+      listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
         this.servers = response.rows.map(server => ({
           value: server.serverName,
           label: server.serverName
         }));
       })
     },
-    
+
     /** 根据服务器获取内网列表 */
     getNetworksByServer(serverName) {
-      listTincNetworkMange({ serverName: serverName }).then(response => {
+      listNetwork({ serverName: serverName }).then(response => {
         this.networks = response.rows.map(network => ({
           value: network.id,
           label: network.networkName

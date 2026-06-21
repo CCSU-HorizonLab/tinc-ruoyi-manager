@@ -87,13 +87,13 @@
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
-    <el-table v-loading="loading" :data="mangerList" @selection-change="handleSremarkChange">
+    <el-table v-loading="loading" :data="serverList" @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="55" align="center" />
-      <el-table-column label="id" align="center" prop="id" /> <!-- 修改: 从prop="Id"改为prop="id"，与后端返回的JSON字段名保持一致 -->
+      <el-table-column label="id" align="center" prop="id" />
       <el-table-column label="服务器名字" align="center" prop="serverName" />
       <el-table-column label="服务器ip" align="center" prop="serverIp" />
       <el-table-column label="内网数量" align="center" prop="number" />
-      <el-table-column label="状态" align="center" prop="status"> <!-- 修改: 从prop="staust"改为prop="status"，修正拼写错误 -->
+      <el-table-column label="状态" align="center" prop="status">
         <template slot-scope="scope">
           <el-tag :type="scope.row.status == '1' ? 'success' : 'info'">
             {{ scope.row.status == '1' ? '在线' : '离线' }}
@@ -119,7 +119,7 @@
         </template>
       </el-table-column>
     </el-table>
-    
+
     <pagination
       v-show="total>0"
       :total="total"
@@ -128,7 +128,7 @@
       @pagination="getList"
     />
 
-    <!-- 添加或修改服务器对话框 -->
+    <!-- 添加或修改服务器管理对话框 -->
     <el-dialog :title="title" :visible.sync="open" width="500px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="80px">
         <el-form-item label="服务器名字" prop="serverName">
@@ -162,27 +162,19 @@
 </template>
 
 <script>
-import { listManger, getManger, delManger, addManger, updateManger } from "@/api/manger/manger"
+import { listServer, getServer, delServer, addServer, updateServer } from "@/api/tinc/server"
 
 export default {
-  name: "Manger",
+  name: "Server",
   data() {
     return {
-      // 遮罩层
       loading: true,
-      // 选中数组
       ids: [],
-      // 非单个禁用
       single: true,
-      // 非多个禁用
       multiple: true,
-      // 显示搜索条件
       showSearch: true,
-      // 总条数
       total: 0,
-      // 服务器集群管理表格数据
-      mangerList: [],
-      // 字典数据（本地）
+      serverList: [],
       dict: {
         type: {
           server_status: [
@@ -191,22 +183,17 @@ export default {
           ]
         }
       },
-      // 弹出层标题
       title: "",
-      // 是否正在提交
       isSubmitting: false,
-      // 查询参数
       queryParams: {
         pageNum: 1,
         pageSize: 10,
         serverName: null,
         serverIp: null,
         number: null,
-        status: null // 修改: 从staust改为status，修正拼写错误
+        status: null
       },
-      // 表单参数
       form: {},
-      // 表单校验
       rules: {
         serverName: [
           { required: true, message: "服务器名字不能为空", trigger: "blur" }
@@ -231,7 +218,7 @@ export default {
         ],
         status: [
           { required: true, message: "状态不能为空", trigger: "change" }
-        ] // 修改: 从staust改为status，修正拼写错误
+        ]
       }
     }
   },
@@ -239,24 +226,21 @@ export default {
     this.getList()
   },
   methods: {
-    /** 查询服务器集群管理列表 */
     getList() {
       this.loading = true
-      listManger(this.queryParams).then(response => {
-        this.mangerList = response.rows
+      listServer(this.queryParams).then(response => {
+        this.serverList = response.rows
         this.total = response.total
         this.loading = false
       })
     },
-    // 取消按钮
     cancel() {
       this.open = false
       this.reset()
     },
-    // 表单重置
     reset() {
       this.form = {
-        id: null, // 修改: 从Id改为id，与后端返回的JSON字段名保持一致
+        id: null,
         serverName: null,
         serverIp: null,
         startInterat: null,
@@ -265,50 +249,44 @@ export default {
         endPort: null,
         remark: null,
         number: null,
-        status: null // 修改: 从staust改为status，修正拼写错误
+        status: null
       }
       this.resetForm("form")
     },
-    /** 搜索按钮操作 */
     handleQuery() {
       this.queryParams.pageNum = 1
       this.getList()
     },
-    /** 重置按钮操作 */
     resetQuery() {
       this.resetForm("queryForm")
       this.handleQuery()
     },
-    // 多选框选中数据
-    handleSremarkChange(selection) {
-      this.ids = selection.map(item => item.id) // 修改: 从item.Id改为item.id，与后端返回的JSON字段名保持一致
-      this.single = selection.length!==1
+    handleSelectionChange(selection) {
+      this.ids = selection.map(item => item.id)
+      this.single = selection.length !== 1
       this.multiple = !selection.length
     },
-    /** 新增按钮操作 */
     handleAdd() {
       this.reset()
       this.open = true
       this.title = "添加服务器"
     },
-    /** 修改按钮操作 */
     handleUpdate(row) {
       this.reset()
-      const Id = row.id || this.ids // 修改: 从row.Id改为row.id，与后端返回的JSON字段名保持一致
-      getManger(Id).then(response => {
+      const id = row.id || this.ids
+      getServer(id).then(response => {
         this.form = response.data
         this.open = true
         this.title = "修改服务器"
       })
     },
-    /** 提交按钮 */
     submitForm() {
       if (this.isSubmitting) return;
       this.isSubmitting = true;
       this.$refs["form"].validate(valid => {
         if (valid) {
-          if (this.form.id != null) { // 修改: 从this.form.Id改为this.form.id，与后端返回的JSON字段名保持一致
-            updateManger(this.form).then(response => {
+          if (this.form.id != null) {
+            updateServer(this.form).then(response => {
               this.$modal.msgSuccess("修改成功")
               this.open = false
               this.getList()
@@ -316,7 +294,7 @@ export default {
               this.isSubmitting = false;
             })
           } else {
-            addManger(this.form).then(response => {
+            addServer(this.form).then(response => {
               this.$modal.msgSuccess("新增成功")
               this.open = false
               this.getList()
@@ -329,21 +307,19 @@ export default {
         }
       })
     },
-    /** 删除按钮操作 */
     handleDelete(row) {
-      const Ids = row.id || this.ids // 修改: 从row.Id改为row.id，与后端返回的JSON字段名保持一致
-      this.$modal.confirm('是否确认删除服务器集群管理编号为"' + Ids + '"的数据项？').then(function() {
-        return delManger(Ids)
+      const ids = row.id || this.ids
+      this.$modal.confirm('是否确认删除服务器编号为"' + ids + '"的数据项？').then(function() {
+        return delServer(ids)
       }).then(() => {
         this.getList()
         this.$modal.msgSuccess("删除成功")
       }).catch(() => {})
     },
-    /** 导出按钮操作 */
     handleExport() {
-      this.download('manger/manger/export', {
+      this.download('tinc/server/export', {
         ...this.queryParams
-      }, `manger_${new Date().getTime()}.xlsx`)
+      }, `server_${new Date().getTime()}.xlsx`)
     }
   }
 }
