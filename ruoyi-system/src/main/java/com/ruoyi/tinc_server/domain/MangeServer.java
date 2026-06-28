@@ -33,21 +33,18 @@ public class MangeServer extends BaseEntity
     /** 起始网段 */
     @Excel(name = "起始网段")
     @Pattern(regexp = "^((25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\.){0,2}(25[0-5]|2[0-4]\\d|[0-1]?\\d\\d?)$", message = "起始网段格式不正确，应为xxx.xxx.xxx或xxx.xxx")
-    private String startInterat;
+    private String startSegment;
 
     /** 终止网段 */
     @Excel(name = "终止网段")
     @Pattern(regexp= "^((25[0-5]|2[0-4]\\d|[0-1]?\\d\\d?)\\.){0,2}(25[0-5]|2[0-4]\\d|[0-1]?\\d\\d?)$", message = "终止网段格式不正确，应为xxx.xxx.xxx或xxx.xxx")
-    private String endInterat;
+    private String endSegment;
 
     /** 起始端口 */
     private Long startPort;
 
     /** 终止端口 */
     private Long endPort;
-
-    /** 备注 */
-    private String remark;
 
     /** 内网数量 */
     @Excel(name = "内网数量")
@@ -87,24 +84,24 @@ public class MangeServer extends BaseEntity
         return serverIp;
     }
 
-    public void setStartInterat(String startInterat) 
+    public void setStartSegment(String startSegment) 
     {
-        this.startInterat = startInterat;
+        this.startSegment = startSegment;
     }
 
-    public String getStartInterat() 
+    public String getStartSegment() 
     {
-        return startInterat;
+        return startSegment;
     }
 
-    public void setEndInterat(String endInterat) 
+    public void setEndSegment(String endSegment) 
     {
-        this.endInterat = endInterat;
+        this.endSegment = endSegment;
     }
 
-    public String getEndInterat() 
+    public String getEndSegment() 
     {
-        return endInterat;
+        return endSegment;
     }
 
     public void setStartPort(Long startPort)
@@ -125,16 +122,6 @@ public class MangeServer extends BaseEntity
     public Long getEndPort()
     {
         return endPort;
-    }
-
-    public void setRemark(String remark)
-    {
-        this.remark = remark;
-    }
-
-    public String getRemark()
-    {
-        return remark;
     }
 
     public void setNumber(Long number) 
@@ -163,13 +150,17 @@ public class MangeServer extends BaseEntity
             .append("id", getId())
             .append("serverName", getServerName())
             .append("serverIp", getServerIp())
-            .append("startInterat", getStartInterat())
-            .append("endInterat", getEndInterat())
+            .append("startSegment", getStartSegment())
+            .append("endSegment", getEndSegment())
             .append("startPort", getStartPort())
             .append("endPort", getEndPort())
             .append("remark", getRemark())
             .append("number", getNumber())
             .append("status", getStatus())
+            .append("createBy", getCreateBy())
+            .append("createTime", getCreateTime())
+            .append("updateBy", getUpdateBy())
+            .append("updateTime", getUpdateTime())
             .toString();
     }
 }

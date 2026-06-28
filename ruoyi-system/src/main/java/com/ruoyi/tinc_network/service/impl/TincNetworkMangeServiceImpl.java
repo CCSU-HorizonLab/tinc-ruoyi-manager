@@ -224,11 +224,11 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
         List<String> segments = new ArrayList<>();
         List<MangeServer> serverList = mangeServerService.selectMangeServerList(new MangeServer());
         for(MangeServer server:serverList){
-            String startInterat = server.getStartInterat();
-            String endInterat  = server.getEndInterat();
-            if(startInterat != null && endInterat != null){
-                segments.add(startInterat);
-                segments.add(endInterat);
+            String startSegment = server.getStartSegment();
+            String endSegment  = server.getEndSegment();
+            if(startSegment != null && endSegment != null){
+                segments.add(startSegment);
+                segments.add(endSegment);
             }
         }
         return segments;

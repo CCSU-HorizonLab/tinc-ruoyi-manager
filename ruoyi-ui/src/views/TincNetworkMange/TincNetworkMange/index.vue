@@ -408,8 +408,8 @@ export default {
       if(server){
         try {
           // 根据服务器的起始和结束网段生成网段选项
-          this.segmentOptions = this.generateSegmentOptions(server.startInterat, server.endInterat);
-          // 根据服务器的起始和结束端口生成端口选项
+          this.segmentOptions = this.generateSegmentOptions(server.startSegment, server.endSegment);
+          // 根据服务器的起始 and 结束端口生成端口选项
           this.portOptions = this.generatePortOptions(server.startPort, server.endPort);
         } catch (error) {
           console.error('生成选项失败:', error);
@@ -426,20 +426,20 @@ export default {
     /**
      * 生成网段选项列表
      * 根据服务器的起始和结束网段生成完整的网段选项
-     * 假设网段格式为"192.168.x"，生成从startInterat到endInterat的所有网段
+     * 假设网段格式为"192.168.x"，生成从startSegment到endSegment的所有网段
      * 
-     * @param {string} startInterat - 起始网段，如"192.168.1"
-     * @param {string} endInterat - 结束网段，如"192.168.3"
+     * @param {string} startSegment - 起始网段，如"192.168.1"
+     * @param {string} endSegment - 结束网段，如"192.168.3"
      * @return {Array} 网段选项列表，每个选项包含label和value
      */
-    generateSegmentOptions(startInterat, endInterat) {
+    generateSegmentOptions(startSegment, endSegment) {
       const segments = [];
-      if (!startInterat || !endInterat) return segments;
+      if (!startSegment || !endSegment) return segments;
       
       try {
         // 将网段字符串分割为数组，如"192.168.1" → ["192", "168", "1"]
-        const startParts = startInterat.split('.');
-        const endParts = endInterat.split('.');
+        const startParts = startSegment.split('.');
+        const endParts = endSegment.split('.');
         
         // 简化处理，只处理相同前缀的情况（如192.168.x）
         if (startParts.length === 3 && endParts.length === 3 && 
@@ -528,12 +528,12 @@ export default {
       }
       
       if (this.currentServer) {
-        const startInterat = this.currentServer.startInterat;
-        const endInterat = this.currentServer.endInterat;
+        const startSegment = this.currentServer.startSegment;
+        const endSegment = this.currentServer.endSegment;
         
         // 简单验证：检查网段是否在范围内
-        const startParts = startInterat.split('.');
-        const endParts = endInterat.split('.');
+        const startParts = startSegment.split('.');
+        const endParts = endSegment.split('.');
         const valueParts = value.split('.');
         
         if (startParts.length === 3 && endParts.length === 3 && valueParts.length === 3) {
@@ -545,7 +545,7 @@ export default {
             const valueNum = parseInt(valueParts[2]);
             
             if (isNaN(valueNum) || valueNum < start || valueNum > end) {
-              return callback(new Error(`网段必须在 ${startInterat} 到 ${endInterat} 之间`));
+              return callback(new Error(`网段必须在 ${startSegment} 到 ${endSegment} 之间`));
             }
           }
         }

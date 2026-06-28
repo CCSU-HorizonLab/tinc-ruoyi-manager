@@ -8,17 +8,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="id"    column="Id"    />
         <result property="serverName"    column="server_name"    />
         <result property="serverIp"    column="server_ip"    />
-        <result property="startInterat"    column="start_Interat"    />
-        <result property="endInterat"    column="end_Interat"    />
-        <result property="startPort"    column="start_post"    />
-        <result property="endPort"    column="end_post"    />
-        <result property="remark"    column="election"    />
+        <result property="startSegment"    column="start_segment"    />
+        <result property="endSegment"    column="end_segment"    />
+        <result property="startPort"    column="start_port"    />
+        <result property="endPort"    column="end_port"    />
+        <result property="remark"    column="remark"    />
         <result property="number"    column="number"    />
         <result property="status"    column="status"    />
+        <result property="createBy"    column="create_by"    />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"    column="update_by"    />
+        <result property="updateTime"    column="update_time"    />
     </resultMap>
 
     <sql id="selectMangeServerVo">
-        select Id, server_name, server_ip, start_Interat, end_Interat, start_post, end_post, election, number, status from mange_server
+        select Id, server_name, server_ip, start_segment, end_segment, start_port, end_port, remark, number, status, create_by, create_time, update_by, update_time from tinc_server
     </sql>
 
     <select id="selectMangeServerList" parameterType="MangeServer" resultMap="MangeServerResult">
@@ -28,6 +32,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="serverIp != null  and serverIp != ''"> and server_ip = #{serverIp}</if>
             <if test="number != null "> and number = #{number}</if>
             <if test="status != null "> and status = #{status}</if>
+            <if test="createBy != null  and createBy != ''"> and create_by = #{createBy}</if>
         </where>
     </select>
     
@@ -37,53 +42,59 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </select>
 
     <insert id="insertMangeServer" parameterType="MangeServer" useGeneratedKeys="true" keyProperty="id">
-        insert into mange_server
+        insert into tinc_server
         <trim prefix="(" suffix=")" suffixOverrides=",">
             <if test="serverName != null and serverName != ''">server_name,</if>
             <if test="serverIp != null and serverIp != ''">server_ip,</if>
-            <if test="startInterat != null and startInterat != ''">start_Interat,</if>
-            <if test="endInterat != null and endInterat != ''">end_Interat,</if>
-            <if test="startPort != null">start_post,</if>
-            <if test="endPort != null">end_post,</if>
-            <if test="remark != null">election,</if>
+            <if test="startSegment != null and startSegment != ''">start_segment,</if>
+            <if test="endSegment != null and endSegment != ''">end_segment,</if>
+            <if test="startPort != null">start_port,</if>
+            <if test="endPort != null">end_port,</if>
+            <if test="remark != null">remark,</if>
             <if test="number != null">number,</if>
             <if test="status != null">status,</if>
+            <if test="createBy != null and createBy != ''">create_by,</if>
+            <if test="createTime != null">create_time,</if>
          </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="serverName != null and serverName != ''">#{serverName},</if>
             <if test="serverIp != null and serverIp != ''">#{serverIp},</if>
-            <if test="startInterat != null and startInterat != ''">#{startInterat},</if>
-            <if test="endInterat != null and endInterat != ''">#{endInterat},</if>
+            <if test="startSegment != null and startSegment != ''">#{startSegment},</if>
+            <if test="endSegment != null and endSegment != ''">#{endSegment},</if>
             <if test="startPort != null">#{startPort},</if>
             <if test="endPort != null">#{endPort},</if>
             <if test="remark != null">#{remark},</if>
             <if test="number != null">#{number},</if>
             <if test="status != null">#{status},</if>
+            <if test="createBy != null and createBy != ''">#{createBy},</if>
+            <if test="createTime != null">#{createTime},</if>
          </trim>
     </insert>
 
     <update id="updateMangeServer" parameterType="MangeServer">
-        update mange_server
+        update tinc_server
         <trim prefix="SET" suffixOverrides=",">
             <if test="serverName != null and serverName != ''">server_name = #{serverName},</if>
             <if test="serverIp != null and serverIp != ''">server_ip = #{serverIp},</if>
-            <if test="startInterat != null and startInterat != ''">start_Interat = #{startInterat},</if>
-            <if test="endInterat != null and endInterat != ''">end_Interat = #{endInterat},</if>
-            <if test="startPort != null">start_post = #{startPort},</if>
-            <if test="endPort != null">end_post = #{endPort},</if>
-            <if test="remark != null">election = #{remark},</if>
+            <if test="startSegment != null and startSegment != ''">start_segment = #{startSegment},</if>
+            <if test="endSegment != null and endSegment != ''">end_segment = #{endSegment},</if>
+            <if test="startPort != null">start_port = #{startPort},</if>
+            <if test="endPort != null">end_port = #{endPort},</if>
+            <if test="remark != null">remark = #{remark},</if>
             <if test="number != null">number = #{number},</if>
             <if test="status != null">status = #{status},</if>
+            <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
         </trim>
         where Id = #{id}
     </update>
 
     <delete id="deleteMangeServerById" parameterType="Long">
-        delete from mange_server where Id = #{id}
+        delete from tinc_server where Id = #{id}
     </delete>
 
     <delete id="deleteMangeServerByIds" parameterType="String">
-        delete from mange_server where Id in
+        delete from tinc_server where Id in
         <foreach item="id" collection="array" open="(" separator="," close=")">
             #{id}
         </foreach>

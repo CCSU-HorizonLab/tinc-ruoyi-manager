@@ -21,12 +21,7 @@ import { parseTime, resetForm, addDateRange, handleTree } from "@/utils/ruoyi"
 import Pagination from "@/components/Pagination"
 // 自定义表格工具组件
 import RightToolbar from "@/components/RightToolbar"
-// 文件上传组件
-import FileUpload from "@/components/FileUpload"
-// 图片上传组件
-import ImageUpload from "@/components/ImageUpload"
-// 图片预览组件
-import ImagePreview from "@/components/ImagePreview"
+
 // 全局方法挂载
 Vue.prototype.parseTime = parseTime
 Vue.prototype.resetForm = resetForm
@@ -37,9 +32,7 @@ Vue.prototype.handleTree = handleTree
 // 全局组件挂载
 Vue.component('Pagination', Pagination)
 Vue.component('RightToolbar', RightToolbar)
-Vue.component('FileUpload', FileUpload)
-Vue.component('ImageUpload', ImageUpload)
-Vue.component('ImagePreview', ImagePreview)
+
 
 Vue.use(directive)
 Vue.use(plugins)

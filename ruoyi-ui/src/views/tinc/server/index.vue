@@ -137,11 +137,11 @@
         <el-form-item label="服务器ip" prop="serverIp">
           <el-input v-model="form.serverIp" placeholder="请输入服务器ip" />
         </el-form-item>
-        <el-form-item label="起始网段" prop="startInterat">
-          <el-input v-model="form.startInterat" placeholder="请输入起始网段" />
+        <el-form-item label="起始网段" prop="startSegment">
+          <el-input v-model="form.startSegment" placeholder="请输入起始网段" />
         </el-form-item>
-        <el-form-item label="终止网段" prop="endInterat">
-          <el-input v-model="form.endInterat" placeholder="请输入终止网段" />
+        <el-form-item label="终止网段" prop="endSegment">
+          <el-input v-model="form.endSegment" placeholder="请输入终止网段" />
         </el-form-item>
         <el-form-item label="起始端口" prop="startPort">
           <el-input v-model="form.startPort" placeholder="请输入起始端口" />
@@ -201,10 +201,10 @@ export default {
         serverIp: [
           { required: true, message: "服务器ip不能为空", trigger: "blur" }
         ],
-        startInterat: [
+        startSegment: [
           { required: true, message: "起始网段不能为空", trigger: "blur" }
         ],
-        endInterat: [
+        endSegment: [
           { required: true, message: "终止网段不能为空", trigger: "blur" }
         ],
         startPort: [
@@ -243,8 +243,8 @@ export default {
         id: null,
         serverName: null,
         serverIp: null,
-        startInterat: null,
-        endInterat: null,
+        startSegment: null,
+        endSegment: null,
         startPort: null,
         endPort: null,
         remark: null,

@@ -6,7 +6,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     
     <resultMap type="TincNetworkMange" id="TincNetworkMangeResult">
         <result property="id"    column="id"    />
-        <result property="rootName"    column="root_name"    />
+        <result property="rootName"    column="create_by"    />
         <result property="serverName"    column="server_name"    />
         <result property="networkName"    column="network_name"    />
         <result property="createTime"    column="create_time"    />
@@ -14,17 +14,19 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="segment"    column="segment"    />
         <result property="nodes"    column="nodes"    />
         <result property="networkStatus"    column="network_status"    />
-        <result property="explanation"    column="explanation"    />
+        <result property="explanation"    column="remark"    />
+        <result property="updateBy"    column="update_by"    />
+        <result property="updateTime"    column="update_time"    />
     </resultMap>
 
     <sql id="selectTincNetworkMangeVo">
-        select id, root_name, server_name, network_name, create_time, port, segment, nodes, network_status, explanation from tinc_network_mange
+        select id, create_by, server_name, network_name, create_time, port, segment, nodes, network_status, remark, update_by, update_time from tinc_network
     </sql>
 
     <select id="selectTincNetworkMangeList" parameterType="TincNetworkMange" resultMap="TincNetworkMangeResult">
         <include refid="selectTincNetworkMangeVo"/>
         <where>  
-            <if test="rootName != null  and rootName != ''"> and root_name like concat('%', #{rootName}, '%')</if>
+            <if test="rootName != null  and rootName != ''"> and create_by like concat('%', #{rootName}, '%')</if>
             <if test="serverName != null  and serverName != ''"> and server_name like concat('%', #{serverName}, '%')</if>
             <if test="networkName != null  and networkName != ''"> and network_name like concat('%', #{networkName}, '%')</if>
             <if test="segment != null  and segment != ''"> and segment = #{segment}</if>
@@ -39,9 +41,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </select>
 
     <insert id="insertTincNetworkMange" parameterType="TincNetworkMange" useGeneratedKeys="true" keyProperty="id">
-        insert into tinc_network_mange
+        insert into tinc_network
         <trim prefix="(" suffix=")" suffixOverrides=",">
-            <if test="rootName != null and rootName != ''">root_name,</if>
+            <if test="rootName != null and rootName != ''">create_by,</if>
             <if test="serverName != null and serverName != ''">server_name,</if>
             <if test="networkName != null and networkName != ''">network_name,</if>
             <if test="createTime != null">create_time,</if>
@@ -49,7 +51,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="segment != null and segment != ''">segment,</if>
             <if test="nodes != null">nodes,</if>
             <if test="networkStatus != null and networkStatus != ''">network_status,</if>
-            <if test="explanation != null">explanation,</if>
+            <if test="explanation != null">remark,</if>
          </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="rootName != null and rootName != ''">#{rootName},</if>
@@ -65,9 +67,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </insert>
 
     <update id="updateTincNetworkMange" parameterType="TincNetworkMange">
-        update tinc_network_mange
+        update tinc_network
         <trim prefix="SET" suffixOverrides=",">
-            <if test="rootName != null and rootName != ''">root_name = #{rootName},</if>
+            <if test="rootName != null and rootName != ''">create_by = #{rootName},</if>
             <if test="serverName != null and serverName != ''">server_name = #{serverName},</if>
             <if test="networkName != null and networkName != ''">network_name = #{networkName},</if>
             <if test="createTime != null">create_time = #{createTime},</if>
@@ -75,27 +77,29 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="segment != null and segment != ''">segment = #{segment},</if>
             <if test="nodes != null">nodes = #{nodes},</if>
             <if test="networkStatus != null and networkStatus != ''">network_status = #{networkStatus},</if>
-            <if test="explanation != null">explanation = #{explanation},</if>
+            <if test="explanation != null">remark = #{explanation},</if>
+            <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
         </trim>
         where id = #{id}
     </update>
 
     <delete id="deleteTincNetworkMangeById" parameterType="Long">
-        delete from tinc_network_mange where id = #{id}
+        delete from tinc_network where id = #{id}
     </delete>
 
     <delete id="deleteTincNetworkMangeByIds" parameterType="String">
-        delete from tinc_network_mange where id in 
+        delete from tinc_network where id in 
         <foreach item="id" collection="array" open="(" separator="," close=")">
             #{id}
         </foreach>
     </delete>
 
     <select id="checkPortUnique" parameterType="String" resultType="int">
-        select count(1) from tinc_network_mange where port = #{port}
+        select count(1) from tinc_network where port = #{port}
     </select>
 
     <select id="checkSegmentUnique" parameterType="String" resultType="int">
-        select count(1) from tinc_network_mange where segment = #{segment}
+        select count(1) from tinc_network where segment = #{segment}
     </select>
 </mapper>

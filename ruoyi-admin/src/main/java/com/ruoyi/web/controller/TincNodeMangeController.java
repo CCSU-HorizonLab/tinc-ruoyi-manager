@@ -81,6 +81,7 @@ public class TincNodeMangeController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestBody TincNodeMange tincNodeMange)
     {
+        tincNodeMange.setCreateBy(getUsername());
         return toAjax(tincNodeMangeService.insertTincNodeMange(tincNodeMange));
     }
 
@@ -92,6 +93,7 @@ public class TincNodeMangeController extends BaseController
     @PutMapping
     public AjaxResult edit(@RequestBody TincNodeMange tincNodeMange)
     {
+        tincNodeMange.setUpdateBy(getUsername());
         return toAjax(tincNodeMangeService.updateTincNodeMange(tincNodeMange));
     }
 
@@ -109,7 +111,7 @@ public class TincNodeMangeController extends BaseController
     /**
      * 下载客户端安装包
      */
-    @PreAuthorize("@ss.hasPermi('node_manage:node_manage:export')") // 权限字符先借用 export 的
+    @PreAuthorize("@ss.hasPermi('node_mange:node_mange:export')") // 权限字符先借用 export 的
     @PostMapping("/download/{id}")
     public void download(@PathVariable("id") Long id, HttpServletResponse response) throws IOException
     {

@@ -97,11 +97,12 @@ public class MangeServerController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestBody @Valid MangeServer mangeServer)
     {
-       try{
-          return toAjax(mangeServerService.insertMangeServer(mangeServer));
-       }catch(RuntimeException e){
-            return error(e.getMessage());
-       }
+        mangeServer.setCreateBy(getUsername());
+        try{
+            return toAjax(mangeServerService.insertMangeServer(mangeServer));
+        }catch(RuntimeException e){
+             return error(e.getMessage());
+        }
     }
 
     /**
@@ -117,6 +118,7 @@ public class MangeServerController extends BaseController
     @PutMapping
     public AjaxResult edit(@RequestBody @Valid MangeServer mangeServer)
     {
+        mangeServer.setUpdateBy(getUsername());
         try{
             return toAjax(mangeServerService.updateMangeServer(mangeServer));
         }catch(RuntimeException e){

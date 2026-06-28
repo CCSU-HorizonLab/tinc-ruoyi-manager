@@ -87,6 +87,7 @@ public class TincNetworkMangeController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestBody TincNetworkMange tincNetworkMange)
     {
+        tincNetworkMange.setRootName(getUsername());
         return toAjax(tincNetworkMangeService.insertTincNetworkMange(tincNetworkMange));
     }
 
@@ -101,6 +102,7 @@ public class TincNetworkMangeController extends BaseController
     @PutMapping
     public AjaxResult edit(@RequestBody TincNetworkMange tincNetworkMange)
     {
+        tincNetworkMange.setUpdateBy(getUsername());
         return toAjax(tincNetworkMangeService.updateTincNetworkMange(tincNetworkMange));
     }
 

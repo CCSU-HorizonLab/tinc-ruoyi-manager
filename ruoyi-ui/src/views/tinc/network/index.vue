@@ -350,7 +350,7 @@ export default {
 
       if(server){
         try {
-          this.segmentOptions = this.generateSegmentOptions(server.startInterat, server.endInterat);
+          this.segmentOptions = this.generateSegmentOptions(server.startSegment, server.endSegment);
           this.portOptions = this.generatePortOptions(server.startPort, server.endPort);
         } catch (error) {
           console.error('生成选项失败:', error);
@@ -363,13 +363,13 @@ export default {
       }
     },
 
-    generateSegmentOptions(startInterat, endInterat) {
+    generateSegmentOptions(startSegment, endSegment) {
       const segments = [];
-      if (!startInterat || !endInterat) return segments;
+      if (!startSegment || !endSegment) return segments;
 
       try {
-        const startParts = startInterat.split('.');
-        const endParts = endInterat.split('.');
+        const startParts = startSegment.split('.');
+        const endParts = endSegment.split('.');
 
         if (startParts.length === 3 && endParts.length === 3 &&
             startParts[0] === endParts[0] && startParts[1] === endParts[1]) {
@@ -443,11 +443,11 @@ export default {
       }
 
       if (this.currentServer) {
-        const startInterat = this.currentServer.startInterat;
-        const endInterat = this.currentServer.endInterat;
+        const startSegment = this.currentServer.startSegment;
+        const endSegment = this.currentServer.endSegment;
 
-        const startParts = startInterat.split('.');
-        const endParts = endInterat.split('.');
+        const startParts = startSegment.split('.');
+        const endParts = endSegment.split('.');
         const valueParts = value.split('.');
 
         if (startParts.length === 3 && endParts.length === 3 && valueParts.length === 3) {
@@ -459,7 +459,7 @@ export default {
             const valueNum = parseInt(valueParts[2]);
 
             if (isNaN(valueNum) || valueNum < start || valueNum > end) {
-              return callback(new Error(`网段必须在 ${startInterat} 到 ${endInterat} 之间`));
+              return callback(new Error(`网段必须在 ${startSegment} 到 ${endSegment} 之间`));
             }
           }
         }
