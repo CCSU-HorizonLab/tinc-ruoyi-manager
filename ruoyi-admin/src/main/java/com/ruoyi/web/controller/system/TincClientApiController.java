@@ -4,7 +4,6 @@ import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.common.annotation.Anonymous;
-import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.TincConfigUtils;
 import com.ruoyi.tinc_server.domain.MangeServer;
@@ -23,12 +22,18 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+/**
+ * Tinc C++ Qt 客户端专用 RESTful API 接口
+ * 
+ * @author Antigravity
+ * @date 2026-07-03
+ */
 @Anonymous
 @RestController
-@RequestMapping("/XVntQFJCjc.php")
-public class LegacyTincController {
+@RequestMapping("/api/tinc/client")
+public class TincClientApiController {
 
-    private static final Logger log = LoggerFactory.getLogger(LegacyTincController.class);
+    private static final Logger log = LoggerFactory.getLogger(TincClientApiController.class);
 
     @Autowired
     private IMangeServerService mangeServerService;
@@ -39,9 +44,12 @@ public class LegacyTincController {
     @Autowired
     private ITincNodeMangeService nodeMangeService;
 
-    @PostMapping("/myadmin/node/api")
+    /**
+     * 客户端登录验证，获取内网分配的虚拟 IP 和网络名称
+     */
+    @PostMapping("/login")
     public JSONObject login(@RequestBody Map<String, String> params) {
-        log.info("========== 登录接口被调用 ==========");
+        log.info("========== 客户端登录接口被调用 ==========");
         log.info("请求参数: {}", params);
 
         String username = params.get("sid");
@@ -97,8 +105,6 @@ public class LegacyTincController {
             result.put("token", "sun-token-" + System.currentTimeMillis());
             result.put("net_name", network.getNetworkName());
             result.put("msg", "登录成功");
-
-            // 👇👇👇 加上这极其关键的一行！把数据库里的虚拟 IP 传给客户端！
             result.put("node_ip", node.getNetworkIp());
 
             log.info("登录成功，用户: {}, 网络: {}", username, network.getNetworkName());
@@ -111,9 +117,12 @@ public class LegacyTincController {
         return result;
     }
 
-    @PostMapping("/coreplugs/coreplugs/api")
+    /**
+     * 下载该节点的初始化 Tinc 配置文件压缩包 (ZIP)
+     */
+    @PostMapping("/config/download")
     public void downloadConfig(@RequestBody Map<String, String> params, HttpServletResponse response) throws IOException {
-        log.info("========== 下载配置接口被调用 ==========");
+        log.info("========== 客户端下载配置接口被调用 ==========");
         log.info("请求参数: {}", params);
 
         String nodeName = params.get("sid");
@@ -164,7 +173,7 @@ public class LegacyTincController {
 
                 String tincConf = "Name = " + nodeName + "\n" +
                         "Interface = tinc0\n" +
-                        "Mode = router\n" +
+                        "Mode = switch\n" +
                         "ConnectTo = server_master\n";
                 addToZip(zos, network.getNetworkName() + "/tinc.conf", tincConf);
                 log.info("已添加 {}/tinc.conf", network.getNetworkName());
@@ -224,9 +233,12 @@ public class LegacyTincController {
         }
     }
 
-    @PostMapping("/coreplugs/Clientinterface/exchangeFile")
+    /**
+     * 客户端生成公钥后上传至服务端，建立双向互信
+     */
+    @PostMapping("/key/upload")
     public void uploadKey(@RequestBody Map<String, String> params, HttpServletResponse response) throws IOException {
-        log.info("========== 公钥上传接口被调用 ==========");
+        log.info("========== 客户端公钥上传接口被调用 ==========");
         log.info("请求参数: {}", params);
 
         String nodeName = params.get("sid");
@@ -284,12 +296,16 @@ public class LegacyTincController {
                 throw new IOException("未识别到有效的公钥格式");
             }
 
-            // 写入服务端 hosts 目录（仅含纯净公钥，绝无多余的 Subnet/Address 行）
-            TincConfigUtils.createHostFile(network.getNetworkName(), nodeName, node.getNetworkIp() + "/32", cleanPubKey);
+            // ★ 写入本地 hosts 副本 + 推送到远程网关（传入网关 IP）
+            TincConfigUtils.createHostFile(serverIp, network.getNetworkName(), nodeName,
+                    node.getNetworkIp() + "/32", cleanPubKey);
+
+            // ★ 推送完成后远程重载 tincd 使新节点公钥生效
+            TincConfigUtils.reloadGatewayTinc(serverIp, network.getNetworkName());
 
             node.setStatus("已配置");
             nodeMangeService.updateTincNodeMange(node);
-            log.info("节点状态已更新: {}", nodeName);
+            log.info("节点 [{}] 公钥已推送至网关 [{}] 的 hosts 目录", nodeName, serverIp);
 
             String mainHostContent = TincConfigUtils.readHostFile(network.getNetworkName(), "server_master");
             if (mainHostContent == null) {
@@ -325,9 +341,12 @@ public class LegacyTincController {
         }
     }
 
-    @PostMapping("/promin/Api/editadd_info")
+    /**
+     * 客户端上报自身配置启动结果或在线状态
+     */
+    @PostMapping("/status/update")
     public JSONObject editAddInfo(@RequestBody Map<String, String> params) {
-        log.info("========== 编辑接口被调用 ==========");
+        log.info("========== 客户端状态上报接口被调用 ==========");
         log.info("请求参数: {}", params);
 
         String type = params.get("type");
@@ -361,15 +380,59 @@ public class LegacyTincController {
 
             JSONObject resp = new JSONObject();
             resp.put("status", "success");
-            log.info("编辑接口返回: {}", resp);
+            log.info("客户端状态上报接口返回: {}", resp);
             return resp;
         } catch (Exception e) {
-            log.error("编辑接口异常", e);
+            log.error("客户端状态上报接口异常", e);
             JSONObject resp = new JSONObject();
             resp.put("status", "error");
             resp.put("msg", "系统错误: " + e.getMessage());
             return resp;
         }
+    }
+
+    /**
+     * 客户端心跳接口，维持节点在线状态
+     */
+    @PostMapping("/keepalive")
+    public JSONObject keepAlive(@RequestBody Map<String, String> params) {
+        log.info("========== 客户端心跳接口被调用 ==========");
+        log.info("请求参数: {}", params);
+
+        String nodeName = params.get("sid");
+        JSONObject result = new JSONObject();
+
+        try {
+            if (StringUtils.isEmpty(nodeName)) {
+                result.put("status", "error");
+                result.put("msg", "节点名称不能为空");
+                return result;
+            }
+
+            TincNodeMange queryNode = new TincNodeMange();
+            queryNode.setNodeName(nodeName);
+            List<TincNodeMange> nodeList = nodeMangeService.selectTincNodeMangeList(queryNode);
+
+            if (nodeList == null || nodeList.isEmpty()) {
+                result.put("status", "error");
+                result.put("msg", "节点不存在");
+                return result;
+            }
+
+            TincNodeMange node = nodeList.get(0);
+            node.setNodeStatus("在线");
+            nodeMangeService.updateTincNodeMange(node);
+
+            result.put("status", "success");
+            result.put("msg", "心跳成功");
+            log.info("节点 [{}] 在线状态已刷新", nodeName);
+        } catch (Exception e) {
+            log.error("心跳接口异常", e);
+            result.put("status", "error");
+            result.put("msg", "系统错误: " + e.getMessage());
+        }
+
+        return result;
     }
 
     private void addToZip(ZipOutputStream zos, String fileName, String content) throws IOException {

@@ -4,10 +4,15 @@ import java.util.List;
 
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.TincConfigUtils;
+import com.ruoyi.tinc_network.domain.TincNetworkMange;
+import com.ruoyi.tinc_network.mapper.TincNetworkMangeMapper;
+import com.ruoyi.tinc_server.domain.MangeServer;
+import com.ruoyi.tinc_server.service.IMangeServerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.tinc_node.mapper.TincNodeMangeMapper;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
 import com.ruoyi.tinc_node.service.ITincNodeMangeService;
@@ -22,6 +27,12 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
 
     @Autowired
     private TincNodeMangeMapper tincNodeMangeMapper;
+
+    @Autowired
+    private TincNetworkMangeMapper tincNetworkMangeMapper;
+
+    @Autowired
+    private IMangeServerService mangeServerService;
 
     @Override
     public TincNodeMange selectTincNodeMangeById(Long id) {
@@ -47,12 +58,19 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     /**
      * 修改 Tinc 节点（兼容两种场景）：
      *
-     * 场景 A — 客户端手动上传公钥：
-     *   前端把脏公钥文本塞进 password 字段传来，本方法用正则抠出纯净 PEM 块，
-     *   覆写服务端 hosts 文件，然后仅更新状态为"已配置"。
+     * <p>场景 A — 客户端手动上传公钥：</p>
+     * <ol>
+     *   <li>前端把脏公钥文本塞进 password 字段</li>
+     *   <li>正则抠出纯净 PEM 块</li>
+     *   <li>覆写本地 hosts 文件副本</li>
+     *   <li>★ 推送到远程 Tinc VPN 网关</li>
+     *   <li>★ 远程重载 tincd 使新节点公钥生效</li>
+     * </ol>
      *
-     * 场景 B — 普通字段更新（改状态/改备注等）：
-     *   password 字段不包含 PEM 公钥标记，直接透传给 Mapper 做普通 update。
+     * <p>场景 B — 普通字段更新（改状态/改备注等）：</p>
+     * <ul>
+     *   <li>password 字段不包含 PEM 公钥标记，直接透传给 Mapper</li>
+     * </ul>
      */
     @Override
     public int updateTincNodeMange(TincNodeMange tincNodeMange) {
@@ -72,6 +90,9 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
             String rawIp    = oldNode.getNetworkIp();
             String nodeIp   = (rawIp != null && rawIp.contains("/")) ? rawIp : rawIp + "/32";
 
+            // ★ 查出该网络对应的网关 IP
+            String gatewayIp = getGatewayIpForNetwork(netName);
+
             // 2. 正则精准抠出纯净公钥块
             java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
                     "(?s)(-----BEGIN(?: RSA)? PUBLIC KEY-----.*?-----END(?: RSA)? PUBLIC KEY-----)");
@@ -82,14 +103,17 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
             }
             String cleanPubKey = matcher.group(0);
 
-            // 3. 强行覆写服务端 hosts 目录（完全覆盖，杜绝 Subnet 叠罗汉）
-            TincConfigUtils.createHostFile(netName, nodeName, nodeIp, cleanPubKey);
+            // 3. 覆写本地 hosts + 推送远程网关
+            TincConfigUtils.createHostFile(gatewayIp, netName, nodeName, nodeIp, cleanPubKey);
 
-            // 4. 仅更新业务状态，绝不将公钥写入数据库
+            // 4. ★ 远程重载 tincd 使新节点公钥生效
+            TincConfigUtils.reloadGatewayTinc(gatewayIp, netName);
+
+            // 5. 仅更新业务状态，绝不将公钥写入数据库
             tincNodeMange.setPassword(null);
             tincNodeMange.setStatus("已配置");
             int rows = tincNodeMangeMapper.updateTincNodeMange(tincNodeMange);
-            log.info("节点 [{}] 公钥已覆写至服务端 hosts 目录", nodeName);
+            log.info("节点 [{}] 公钥已推送至网关 [{}] 的 hosts 目录", nodeName, gatewayIp);
             return rows;
         }
 
@@ -98,12 +122,62 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int deleteTincNodeMangeByIds(Long[] ids) {
+        log.info("【系统清理】收到批量删除节点请求，IDs: {}", java.util.Arrays.toString(ids));
+        if (ids != null) {
+            for (Long id : ids) {
+                deleteTincNodeMangeById(id);
+            }
+        }
         return tincNodeMangeMapper.deleteTincNodeMangeByIds(ids);
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int deleteTincNodeMangeById(Long id) {
+        log.info("【系统清理】开始物理删除节点，ID: {}", id);
+        TincNodeMange node = tincNodeMangeMapper.selectTincNodeMangeById(id);
+        if (node != null) {
+            log.info("【系统清理】查找到节点信息，名称: {}, 网络: {}", node.getNodeName(), node.getNetworkName());
+            try {
+                String netName = node.getNetworkName();
+                String gatewayIp = getGatewayIpForNetwork(netName);
+
+                // 物理删除本地备份 + 远程网关节点配置，并重载网关
+                TincConfigUtils.deleteNode(gatewayIp, netName, node.getNodeName());
+            } catch (Exception e) {
+                log.error("物理清理节点失败: id={}, nodeName={}", id, node.getNodeName(), e);
+                throw new RuntimeException("清理物理机节点配置失败: " + e.getMessage(), e);
+            }
+        } else {
+            log.warn("【系统清理】数据库中未查找到 ID: {} 对应的节点，跳过物理清理", id);
+        }
         return tincNodeMangeMapper.deleteTincNodeMangeById(id);
+    }
+
+    /**
+     * 根据网络名称查询对应的网关服务器 IP
+     * <p>
+     * 链路：tinc_node → tinc_network → server_name → mange_server → server_ip
+     * </p>
+     */
+    private String getGatewayIpForNetwork(String networkName) {
+        TincNetworkMange queryNetwork = new TincNetworkMange();
+        queryNetwork.setNetworkName(networkName);
+        List<TincNetworkMange> networks = tincNetworkMangeMapper.selectTincNetworkMangeList(queryNetwork);
+        if (networks == null || networks.isEmpty()) {
+            throw new RuntimeException("网络不存在: " + networkName);
+        }
+
+        String serverName = networks.get(0).getServerName();
+        MangeServer queryServer = new MangeServer();
+        queryServer.setServerName(serverName);
+        List<MangeServer> servers = mangeServerService.selectMangeServerList(queryServer);
+        if (servers == null || servers.isEmpty()) {
+            throw new RuntimeException("服务器不存在: " + serverName);
+        }
+
+        return servers.get(0).getServerIp();
     }
 }

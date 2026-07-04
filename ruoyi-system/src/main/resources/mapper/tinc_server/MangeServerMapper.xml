@@ -15,6 +15,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="remark"    column="remark"    />
         <result property="number"    column="number"    />
         <result property="status"    column="status"    />
+        <result property="sshPort"    column="ssh_port"    />
+        <result property="sshUser"    column="ssh_user"    />
+        <result property="sshKeyPath"    column="ssh_key_path"    />
+        <result property="sshPassword"    column="ssh_password"    />
         <result property="createBy"    column="create_by"    />
         <result property="createTime"    column="create_time"    />
         <result property="updateBy"    column="update_by"    />
@@ -22,7 +26,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </resultMap>
 
     <sql id="selectMangeServerVo">
-        select Id, server_name, server_ip, start_segment, end_segment, start_port, end_port, remark, number, status, create_by, create_time, update_by, update_time from tinc_server
+        select Id, server_name, server_ip, start_segment, end_segment, start_port, end_port, remark, number, status, ssh_port, ssh_user, ssh_key_path, ssh_password, create_by, create_time, update_by, update_time from tinc_server
     </sql>
 
     <select id="selectMangeServerList" parameterType="MangeServer" resultMap="MangeServerResult">
@@ -53,6 +57,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="remark != null">remark,</if>
             <if test="number != null">number,</if>
             <if test="status != null">status,</if>
+            <if test="sshPort != null">ssh_port,</if>
+            <if test="sshUser != null and sshUser != ''">ssh_user,</if>
+            <if test="sshKeyPath != null and sshKeyPath != ''">ssh_key_path,</if>
+            <if test="sshPassword != null and sshPassword != ''">ssh_password,</if>
             <if test="createBy != null and createBy != ''">create_by,</if>
             <if test="createTime != null">create_time,</if>
          </trim>
@@ -66,6 +74,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="remark != null">#{remark},</if>
             <if test="number != null">#{number},</if>
             <if test="status != null">#{status},</if>
+            <if test="sshPort != null">#{sshPort},</if>
+            <if test="sshUser != null and sshUser != ''">#{sshUser},</if>
+            <if test="sshKeyPath != null and sshKeyPath != ''">#{sshKeyPath},</if>
+            <if test="sshPassword != null and sshPassword != ''">#{sshPassword},</if>
             <if test="createBy != null and createBy != ''">#{createBy},</if>
             <if test="createTime != null">#{createTime},</if>
          </trim>
@@ -83,6 +95,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="remark != null">remark = #{remark},</if>
             <if test="number != null">number = #{number},</if>
             <if test="status != null">status = #{status},</if>
+            <if test="sshPort != null">ssh_port = #{sshPort},</if>
+            <if test="sshUser != null and sshUser != ''">ssh_user = #{sshUser},</if>
+            <if test="sshKeyPath != null and sshKeyPath != ''">ssh_key_path = #{sshKeyPath},</if>
+            <if test="sshPassword != null and sshPassword != ''">ssh_password = #{sshPassword},</if>
             <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>
         </trim>

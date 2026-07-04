@@ -22,10 +22,11 @@ import com.ruoyi.tinc_server.domain.MangeServer;
 import com.ruoyi.tinc_server.service.IMangeServerService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
+import com.ruoyi.common.transport.TincConfigTransport;
 
 /**
  * 服务器集群管理Controller
- * 
+ *
  * @author sun
  * @date 2025-12-18
  */
@@ -35,6 +36,9 @@ public class MangeServerController extends BaseController
 {
     @Autowired
     private IMangeServerService mangeServerService;
+
+    @Autowired
+    private TincConfigTransport tincConfigTransport;
 
     /**
      * 查询服务器集群管理列表
@@ -136,9 +140,57 @@ public class MangeServerController extends BaseController
      */
     @PreAuthorize("@ss.hasPermi('manger:manger:remove')")
     @Log(title = "服务器集群管理", businessType = BusinessType.DELETE)
-	@DeleteMapping("/{Ids}")
+    @DeleteMapping("/{Ids}")
     public AjaxResult remove(@PathVariable Long[] Ids)
     {
         return toAjax(mangeServerService.deleteMangeServerByIds(Ids));
+    }
+
+    /**
+     * 检测目标服务器是否已安装 Tinc
+     * <p>前端可在服务器列表页增加"检测 Tinc"按钮，确认网关环境是否就绪</p>
+     *
+     * @param id 服务器 ID
+     * @return { installed: true/false, msg: "..." }
+     */
+    @PreAuthorize("@ss.hasPermi('manger:manger:query')")
+    @GetMapping("/{id}/tinc/check")
+    public AjaxResult checkTincInstalled(@PathVariable("id") Long id)
+    {
+        MangeServer server = mangeServerService.selectMangeServerById(id);
+        if (server == null) {
+            return error("服务器不存在");
+        }
+        try {
+            boolean installed = tincConfigTransport.isTincInstalled(server.getServerIp());
+            return success().put("installed", installed)
+                    .put("msg", installed ? "Tinc 已安装" : "Tinc 未安装，请初始化");
+        } catch (Exception e) {
+            return error("检测失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 一键初始化目标服务器 Tinc 环境
+     * <p>SSH 到目标服务器，自动检测包管理器并安装 tinc，创建 /etc/tinc 目录</p>
+     *
+     * @param id 服务器 ID
+     * @return 安装结果
+     */
+    @PreAuthorize("@ss.hasPermi('manger:manger:edit')")
+    @Log(title = "服务器集群管理 - Tinc初始化", businessType = BusinessType.UPDATE)
+    @PostMapping("/{id}/tinc/install")
+    public AjaxResult installTinc(@PathVariable("id") Long id)
+    {
+        MangeServer server = mangeServerService.selectMangeServerById(id);
+        if (server == null) {
+            return error("服务器不存在");
+        }
+        try {
+            String output = tincConfigTransport.installTinc(server.getServerIp());
+            return success("Tinc 安装成功！").put("output", output);
+        } catch (Exception e) {
+            return error("Tinc 安装失败: " + e.getMessage());
+        }
     }
 }

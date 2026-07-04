@@ -54,6 +54,18 @@ public class MangeServer extends BaseEntity
     @Excel(name = "状态")
     private Long status;
 
+    /** SSH 端口（默认 22） */
+    private Integer sshPort;
+
+    /** SSH 登录用户名（默认 root） */
+    private String sshUser;
+
+    /** SSH 私钥路径（优先于密码认证） */
+    private String sshKeyPath;
+
+    /** SSH 密码（未配置私钥时使用） */
+    private String sshPassword;
+
     public void setId(Long id)
     {
         this.id = id;
@@ -144,6 +156,46 @@ public class MangeServer extends BaseEntity
         return status;
     }
 
+    public void setSshPort(Integer sshPort)
+    {
+        this.sshPort = sshPort;
+    }
+
+    public Integer getSshPort()
+    {
+        return sshPort;
+    }
+
+    public void setSshUser(String sshUser)
+    {
+        this.sshUser = sshUser;
+    }
+
+    public String getSshUser()
+    {
+        return sshUser;
+    }
+
+    public void setSshKeyPath(String sshKeyPath)
+    {
+        this.sshKeyPath = sshKeyPath;
+    }
+
+    public String getSshKeyPath()
+    {
+        return sshKeyPath;
+    }
+
+    public void setSshPassword(String sshPassword)
+    {
+        this.sshPassword = sshPassword;
+    }
+
+    public String getSshPassword()
+    {
+        return sshPassword;
+    }
+
     @Override
     public String toString() {
         return new ToStringBuilder(this,ToStringStyle.MULTI_LINE_STYLE)
@@ -161,6 +213,10 @@ public class MangeServer extends BaseEntity
             .append("createTime", getCreateTime())
             .append("updateBy", getUpdateBy())
             .append("updateTime", getUpdateTime())
+            .append("sshPort", getSshPort())
+            .append("sshUser", getSshUser())
+            .append("sshKeyPath", getSshKeyPath())
+            .append("sshPassword", getSshPassword() != null ? "***" : null)
             .toString();
     }
 }

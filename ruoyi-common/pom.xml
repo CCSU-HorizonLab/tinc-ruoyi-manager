@@ -113,10 +113,20 @@
             <artifactId>javax.servlet-api</artifactId>
         </dependency>
 
+        <!-- BouncyCastle — RsaUtils 使用它生成 PKCS#1 格式的 RSA 密钥（Tinc 兼容格式）-->
+        <!-- 注意：此依赖与 JSch 无关，不可删除 -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk15on</artifactId>
             <version>1.70</version>
+        </dependency>
+
+        <!-- JSch (mwiede fork) — Java SSH 客户端，支持 ed25519/ecdsa/OpenSSH 新格式私钥 -->
+        <!-- 替换 com.jcraft:jsch:0.1.55，彻底解决旧版不支持现代密钥格式的问题 -->
+        <dependency>
+            <groupId>com.github.mwiede</groupId>
+            <artifactId>jsch</artifactId>
+            <version>0.2.20</version>
         </dependency>
 
     </dependencies>
