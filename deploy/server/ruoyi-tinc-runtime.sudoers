@@ -1,0 +1,3 @@
+# Install as /etc/sudoers.d/ruoyi-tinc-runtime with mode 0440 and validate using visudo -cf.
+# The helper itself performs the strict per-argument validation.
+ruoyi-tinc ALL=(root) NOPASSWD: /usr/local/sbin/ruoyi-tinc-runtime *

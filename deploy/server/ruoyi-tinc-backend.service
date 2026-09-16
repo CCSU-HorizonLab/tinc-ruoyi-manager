@@ -1,0 +1,26 @@
+[Unit]
+Description=RuoYi Tinc management backend
+Wants=network-online.target redis.service
+After=network-online.target redis.service mariadb.service mysqld.service firewalld.service
+
+[Service]
+Type=simple
+WorkingDirectory=/www/wwwroot/ry-server-tinc
+Environment=LOG_PATH=/www/wwwroot/ry-server-tinc/logs
+ExecStart=/www/server/java/jdk-21.0.2/bin/java -Xms256M -Xmx512M -jar /www/wwwroot/ry-server-tinc/ruoyi-admin.jar --spring.config.additional-location=file:/www/wwwroot/ry-server-tinc/application.yml
+User=root
+Group=root
+UMask=0077
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+TimeoutStopSec=30s
+SuccessExitStatus=143
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/etc/tinc /www/wwwroot/ry-server-tinc -/www/wwwroot/tinc-project/uploadPath
+
+[Install]
+WantedBy=multi-user.target

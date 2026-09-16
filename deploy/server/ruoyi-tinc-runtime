@@ -1,0 +1,63 @@
+#!/bin/sh
+set -eu
+
+# Root-owned, fixed-verb helper for a non-root Java service. It accepts no shell snippets.
+die() { echo "invalid tinc runtime request" >&2; exit 64; }
+identifier() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_]{1,64}$' || die; }
+interface_name() { printf '%s' "$1" | grep -Eq '^[A-Za-z][A-Za-z0-9_.-]{0,14}$' || die; }
+unit_name() {
+  printf '%s' "$1" | grep -Eq '^tinc@[A-Za-z0-9_]{1,64}\.service$' || die
+}
+port_expr() { printf '%s' "$1" | grep -Eq '^:[1-9][0-9]{0,4}$' || die; }
+firewall_arg() {
+  printf '%s' "$1" | grep -Eq '^--(query|add)-port=([1-9][0-9]{0,4})/(tcp|udp)$' || die
+}
+
+op=${1-}; [ "$#" -ge 1 ] || die; shift
+case "$op" in
+  systemctl)
+    action=${1-}; [ "$#" -ge 2 ] || die
+    case "$action" in
+      is-active|is-enabled) [ "$#" -eq 2 ] || die; unit_name "$2"; exec /usr/bin/systemctl "$action" "$2" ;;
+      enable) [ "$#" -eq 3 ] && [ "${2-}" = "--now" ] && unit_name "${3-}" || die; exec /usr/bin/systemctl enable --now "${3}" ;;
+      show) [ "$#" -eq 5 ] && unit_name "$2" && [ "${3-}" = "--property" ] && [ "${4-}" = "MainPID" ] && [ "${5-}" = "--value" ] || die; exec /usr/bin/systemctl show "$2" --property MainPID --value ;;
+      *) die ;;
+    esac
+    ;;
+  tincd)
+    [ "$#" -eq 3 ] && [ "$1" = "-n" ] && [ "$3" = "-kHUP" ] || die
+    identifier "$2"; exec /usr/sbin/tincd -n "$2" -kHUP
+    ;;
+  ip)
+    if [ "$#" -eq 4 ] && [ "$1" = "link" ] && [ "$2" = "show" ] && [ "$3" = "dev" ]; then
+      interface_name "$4"; exec /usr/sbin/ip link show dev "$4"
+    fi
+    if [ "$#" -eq 7 ] && [ "$1" = "-4" ] && [ "$2" = "-o" ] && [ "$3" = "addr" ] && [ "$4" = "show" ] && [ "$5" = "dev" ]; then
+      interface_name "$6"; die
+    fi
+    if [ "$#" -eq 6 ] && [ "$1" = "-4" ] && [ "$2" = "-o" ] && [ "$3" = "addr" ] && [ "$4" = "show" ] && [ "$5" = "dev" ]; then
+      interface_name "$6"; exec /usr/sbin/ip -4 -o addr show dev "$6"
+    fi
+    die
+    ;;
+  ss)
+    [ "$#" -eq 5 ] && [ "$1" = "-H" ] && { [ "$2" = "-ltnp" ] || [ "$2" = "-lunp" ]; } \
+      && [ "$3" = "sport" ] && [ "$4" = "=" ] || die
+    port_expr "$5"
+    exec /usr/sbin/ss -H "$2" sport = "$5"
+    ;;
+  firewall)
+    if [ "$#" -eq 1 ] && [ "$1" = "--state" ]; then exec /usr/bin/firewall-cmd --state; fi
+    if [ "$#" -eq 1 ]; then firewall_arg "$1"; exec /usr/bin/firewall-cmd "$1"; fi
+    if [ "$#" -eq 2 ] && [ "$1" = "--permanent" ]; then firewall_arg "$2"; exec /usr/bin/firewall-cmd --permanent "$2"; fi
+    die
+    ;;
+  sh-check)
+    [ "$#" -eq 2 ] && [ "$1" = "-n" ] || die
+    printf '%s' "$2" | grep -Eq '^/etc/tinc/[A-Za-z0-9_]{1,64}/tinc-(up|down)$' || die
+    exec /usr/bin/sh -n "$2"
+    ;;
+  nft-check) [ "$#" -eq 2 ] && [ "$1" = "list" ] && [ "$2" = "ruleset" ] || die; exec /usr/sbin/nft list ruleset ;;
+  iptables-check) [ "$#" -eq 1 ] && [ "$1" = "-S" ] || die; exec /usr/sbin/iptables -S ;;
+  *) die ;;
+esac

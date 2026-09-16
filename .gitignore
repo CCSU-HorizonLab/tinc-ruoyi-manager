@@ -47,3 +47,5 @@ nbdist/
 !*/build/*.xml
 
 node_modules/
+
+ruoyi_deploy.bat

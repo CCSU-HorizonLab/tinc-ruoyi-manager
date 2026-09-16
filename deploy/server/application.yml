@@ -1,0 +1,19 @@
+# 服务器部署覆盖配置。
+# 生产数据库凭据仍由打包内的 application-druid-prod.yml 提供；本文件不保存密码。
+spring:
+  profiles:
+    active: druid-prod
+
+# 若依后端与 Tinc 网关部署在同一台 Linux 服务器，直接操作 /etc/tinc，禁止回连自身 SSH。
+tinc:
+  runtime:
+    config-root: /etc/tinc
+    command-timeout-ms: 10000
+    ready-timeout-ms: 15000
+    # Current production Java process is root; enable after installing the helper and switching service user.
+    use-helper: false
+    helper-use-sudo: false
+    file-owner: root
+    file-group: root
+  transport:
+    mode: local
