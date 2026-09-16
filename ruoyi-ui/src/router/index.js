@@ -117,13 +117,13 @@ export const constantRoutes = [
     path: '/tinc-server',
     component: Layout,
     hidden: true,
-    meta: { title: '服务器管理', icon: 'server' },
+    meta: { title: '本机网关', icon: 'server' },
     children: [
       {
         path: '',
         component: () => import('@/views/tinc/server/index'),
         name: 'TincServer',
-        meta: { title: '服务器管理', icon: 'server' }
+        meta: { title: '本机网关', icon: 'server' }
       }
     ]
   },

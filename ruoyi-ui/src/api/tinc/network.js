@@ -15,6 +15,14 @@ export function getNetwork(id) {
   })
 }
 
+// 查询网络真实运行状态（systemd、接口、地址及 TCP/UDP 监听）
+export function getNetworkRuntime(netName) {
+  return request({
+    url: '/tinc/network/runtime/' + encodeURIComponent(netName),
+    method: 'get'
+  })
+}
+
 export function addNetwork(data) {
   return request({
     url: '/tinc/network',

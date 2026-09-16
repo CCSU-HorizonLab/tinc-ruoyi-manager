@@ -55,17 +55,6 @@
       </el-col>
       <el-col :span="1.5">
         <el-button
-          type="danger"
-          plain
-          icon="el-icon-delete"
-          size="mini"
-          :disabled="multiple"
-          @click="handleDelete"
-          v-hasPermi="['TincNetworkMange:TincNetworkMange:remove']"
-        >删除</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button
           type="warning"
           plain
           icon="el-icon-download"
@@ -90,7 +79,13 @@
       </el-table-column>
       <el-table-column label="网段" align="center" prop="segment" />
       <el-table-column label="节点数量" align="center" prop="nodes" />
-      <el-table-column label="内网状态" align="center" prop="networkStatus" />
+      <el-table-column label="运行状态" align="center" min-width="120">
+        <template slot-scope="scope">
+          <el-tag :type="runtimeTagType(scope.row.networkName)">
+            {{ runtimeLabel(scope.row.networkName) }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
         <template slot-scope="scope">
           <el-button
@@ -103,10 +98,10 @@
           <el-button
             size="mini"
             type="text"
-            icon="el-icon-delete"
-            @click="handleDelete(scope.row)"
-            v-hasPermi="['TincNetworkMange:TincNetworkMange:remove']"
-          >删除</el-button>
+            icon="el-icon-refresh"
+            @click="loadRuntimeStatus(scope.row.networkName)"
+            v-hasPermi="['TincNetworkMange:TincNetworkMange:query']"
+          >刷新状态</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -153,7 +148,7 @@
 </template>
 
 <script>
-import { listNetwork, getNetwork, delNetwork, addNetwork, updateNetwork } from "@/api/tinc/network"
+import { listNetwork, getNetwork, getNetworkRuntime, addNetwork, updateNetwork } from "@/api/tinc/network"
 import { listServer } from "@/api/tinc/server"
 
 export default {
@@ -167,6 +162,7 @@ export default {
       showSearch: true,
       total: 0,
       networkList: [],
+      runtimeStatus: {},
       title: "",
       open: false,
       queryParams: {
@@ -225,8 +221,37 @@ export default {
       listNetwork(this.queryParams).then(response => {
         this.networkList = response.rows
         this.total = response.total
+        this.loadRuntimeStatuses(response.rows)
         this.loading = false
       })
+    },
+    loadRuntimeStatuses(networks) {
+      ;(networks || []).forEach(network => this.loadRuntimeStatus(network.networkName, false))
+    },
+    loadRuntimeStatus(netName, notify = true) {
+      if (!netName) return
+      this.$set(this.runtimeStatus, netName, { loading: true })
+      getNetworkRuntime(netName).then(response => {
+        this.$set(this.runtimeStatus, netName, response.data || { readiness: 'NOT_READY' })
+        if (notify) this.$modal.msgSuccess('运行状态已刷新')
+      }).catch(error => {
+        this.$set(this.runtimeStatus, netName, {
+          readiness: 'NOT_READY',
+          failureCode: error.response?.data?.code || 'TINC_RUNTIME_NOT_READY'
+        })
+        if (notify) this.$modal.msgError('运行状态查询失败')
+      })
+    },
+    runtimeLabel(netName) {
+      const status = this.runtimeStatus[netName]
+      if (!status || status.loading) return '检查中'
+      if (status.readiness === 'READY') return 'READY'
+      return status.failureCode || 'NOT READY'
+    },
+    runtimeTagType(netName) {
+      const status = this.runtimeStatus[netName]
+      if (!status || status.loading) return 'info'
+      return status.readiness === 'READY' ? 'success' : 'danger'
     },
     cancel() {
       this.open = false
@@ -316,15 +341,6 @@ export default {
           this.isSubmitting = false;
         }
       })
-    },
-    handleDelete(row) {
-      const ids = row.id || this.ids
-      this.$modal.confirm('是否确认删除内网编号为"' + ids + '"的数据项？').then(function() {
-        return delNetwork(ids)
-      }).then(() => {
-        this.getList()
-        this.$modal.msgSuccess("删除成功")
-      }).catch(() => {})
     },
     handleExport() {
       this.download('tinc/network/export', {

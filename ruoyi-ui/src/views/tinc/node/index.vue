@@ -79,17 +79,6 @@
       </el-col>
       <el-col :span="1.5">
         <el-button
-          type="danger"
-          plain
-          icon="el-icon-delete"
-          size="mini"
-          :disabled="multiple"
-          @click="handleDelete"
-          v-hasPermi="['node_mange:node_mange:remove']"
-        >删除</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button
           type="warning"
           plain
           icon="el-icon-download"
@@ -126,13 +115,6 @@
             @click="handleUpdate(scope.row)"
             v-hasPermi="['node_mange:node_mange:edit']"
           >修改</el-button>
-          <el-button
-            size="mini"
-            type="text"
-            icon="el-icon-delete"
-            @click="handleDelete(scope.row)"
-            v-hasPermi="['node_mange:node_mange:remove']"
-          >删除</el-button>
         </template>
       </el-table-column>
     </el-table>
