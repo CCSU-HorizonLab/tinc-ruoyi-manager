@@ -20,6 +20,8 @@ import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
+import com.ruoyi.common.tinc.runtime.TincRuntimeManager;
+import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 
 /**
  * Tinc内网集群管理Controller
@@ -33,6 +35,9 @@ public class TincNetworkMangeController extends BaseController
 {
     @Autowired
     private ITincNetworkMangeService tincNetworkMangeService;
+
+    @Autowired
+    private TincRuntimeManager tincRuntimeManager;
 
     /**
      * 查询Tinc内网集群管理列表
@@ -118,5 +123,14 @@ public class TincNetworkMangeController extends BaseController
     public AjaxResult remove(@PathVariable Long[] ids)
     {
         return toAjax(tincNetworkMangeService.deleteTincNetworkMangeByIds(ids));
+    }
+
+    /** Read-only runtime health; key material and sensitive paths are never returned. */
+    @PreAuthorize("@ss.hasPermi('TincNetworkMange:TincNetworkMange:query')")
+    @GetMapping("/runtime/{netName}")
+    public AjaxResult runtime(@PathVariable String netName)
+    {
+        TincNetworkStatus status = tincRuntimeManager.inspectNetworkStatus(netName);
+        return success(status);
     }
 }

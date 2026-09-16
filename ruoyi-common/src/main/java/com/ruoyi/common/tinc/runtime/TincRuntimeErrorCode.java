@@ -1,0 +1,19 @@
+package com.ruoyi.common.tinc.runtime;
+
+/** Stable business error codes exposed by the Tinc runtime API. */
+public enum TincRuntimeErrorCode {
+    TINC_CONFIG_INVALID,
+    TINC_PRIVATE_KEY_MISSING,
+    TINC_SCRIPT_INVALID,
+    TINC_INTERFACE_CONFLICT,
+    TINC_PORT_CONFLICT,
+    TINC_SERVICE_START_FAILED,
+    TINC_SERVICE_INACTIVE,
+    TINC_RELOAD_FAILED,
+    TINC_INTERFACE_NOT_READY,
+    TINC_TCP_NOT_LISTENING,
+    TINC_UDP_NOT_LISTENING,
+    TINC_FIREWALL_FAILED,
+    TINC_RUNTIME_NOT_READY,
+    CLOUD_FIREWALL_SUSPECTED
+}

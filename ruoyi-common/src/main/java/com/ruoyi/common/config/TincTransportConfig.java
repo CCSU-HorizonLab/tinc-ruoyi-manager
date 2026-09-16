@@ -1,9 +1,9 @@
 package com.ruoyi.common.config;
 
 import com.ruoyi.common.transport.LocalTincConfigTransport;
-import com.ruoyi.common.transport.SshTincConfigTransport;
 import com.ruoyi.common.transport.TincConfigTransport;
 import com.ruoyi.common.utils.TincConfigUtils;
+import com.ruoyi.common.tinc.runtime.TincRuntimeManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,29 +43,32 @@ public class TincTransportConfig {
     @Value("${tinc.transport.ssh.connect-timeout:10000}")
     private int connectTimeout;
 
+    @Value("${tinc.runtime.file-owner:root}")
+    private String fileOwner;
+
+    @Value("${tinc.runtime.file-group:root}")
+    private String fileGroup;
+
+    @Value("${tinc.runtime.config-root:/etc/tinc}")
+    private String runtimeConfigRoot;
+
     @Bean
-    public TincConfigTransport tincConfigTransport() {
+    public TincConfigTransport tincConfigTransport(TincRuntimeManager runtimeManager) {
         TincConfigTransport transport;
 
         if ("ssh".equalsIgnoreCase(transportMode)) {
-            log.info("========== Tinc 配置传输模式: SSH 远程推送 ==========");
-            SshTincConfigTransport sshTransport = new SshTincConfigTransport();
-            sshTransport.setDefaultSshPort(defaultSshPort);
-            sshTransport.setDefaultSshUser(defaultSshUser);
-            sshTransport.setDefaultSshKeyPath(defaultSshKeyPath);
-            sshTransport.setDefaultSshPassword(defaultSshPassword);
-            sshTransport.setConnectTimeout(connectTimeout);
-            transport = sshTransport;
-        } else {
+            throw new IllegalStateException(
+                    "SSH Tinc 传输模式已禁用：安全远程 RuntimeManager 尚未实现，请使用 local 模式");
+        } else if ("local".equalsIgnoreCase(transportMode)) {
             log.info("========== Tinc 配置传输模式: 本地文件写入（单机部署）==========");
-            String basePath = System.getProperty("os.name").toLowerCase().startsWith("win")
-                    ? "D:/tinc"
-                    : "/etc/tinc";
-            transport = new LocalTincConfigTransport(basePath);
+            transport = new LocalTincConfigTransport(runtimeConfigRoot, fileOwner, fileGroup, runtimeManager);
+        } else {
+            throw new IllegalStateException("不支持的 Tinc 配置传输模式，仅允许 local 或 ssh");
         }
 
         // 注入到 TincConfigUtils 静态方法中
         TincConfigUtils.setTransport(transport);
+        TincConfigUtils.setRuntimeManager(runtimeManager);
         return transport;
     }
 }

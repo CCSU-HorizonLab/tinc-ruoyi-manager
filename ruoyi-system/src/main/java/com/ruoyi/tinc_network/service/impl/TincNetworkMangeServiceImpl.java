@@ -7,6 +7,7 @@ import java.util.Map;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.RsaUtils;
 import com.ruoyi.common.utils.TincConfigUtils;
+import com.ruoyi.common.tinc.runtime.TincRuntimeManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +35,9 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
 
     @Autowired
     private IMangeServerService mangeServerService;
+
+    @Autowired
+    private TincRuntimeManager tincRuntimeManager;
 
     @Override
     public TincNetworkMange selectTincNetworkMangeById(Long id)
@@ -63,7 +67,7 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
     {
         // 1. 设置基础信息并入库
         network.setCreateTime(DateUtils.getNowDate());
-        network.setNetworkStatus("正常运行中");
+        network.setNetworkStatus("初始化中");
         int rows = tincNetworkMangeMapper.insertTincNetworkMange(network);
 
         // 2. 生成配置 → 本地副本 + 远程推送
@@ -94,7 +98,8 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
             Map<String, String> keyMap = RsaUtils.generateKeys();
 
             // C. 生成 tinc.conf（服务端不主动连接任何人，包含自定义 Port）
-            TincConfigUtils.createTincConf(gatewayIp, netName, "server_master", "", network.getPort());
+            String interfaceName = TincConfigUtils.resolveInterfaceName(netName);
+            TincConfigUtils.createTincConf(gatewayIp, netName, "server_master", "", network.getPort(), interfaceName);
 
             // D. 生成启停脚本（绑定 .1 网关 IP）
             TincConfigUtils.createTincUpAndDown(gatewayIp, netName, network.getSegment() + ".1");
@@ -107,8 +112,11 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
             // F. 生成私钥
             TincConfigUtils.createPrivateKey(gatewayIp, netName, keyMap.get("privateKey"));
 
-            // G. ★ 全部推送完毕，远程重载 tincd 使新配置生效
-            TincConfigUtils.reloadGatewayTinc(gatewayIp, netName);
+            // G. 配置完成后由运行管理器处理防火墙、systemd、接口和双协议监听。
+            // 只有数据面全部就绪才提交 READY 状态。
+            tincRuntimeManager.ensureNetworkReady(netName);
+            network.setNetworkStatus("READY");
+            tincNetworkMangeMapper.updateTincNetworkMange(network);
 
         } catch (Exception e) {
             // 手动回滚：文件生成或推送失败时，回滚 DB 记录
@@ -182,7 +190,8 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
             }
 
             // E. 重新生成并推送 tinc.conf（以防端口变更）
-            TincConfigUtils.createTincConf(gatewayIp, netName, "server_master", "", newPort);
+            TincConfigUtils.createTincConf(gatewayIp, netName, "server_master", "", newPort,
+                    TincConfigUtils.resolveInterfaceName(netName));
 
             // F. 覆写 hosts/server_master（本地 + 远程，含 Address/Port/Subnet/PublicKey）
             TincConfigUtils.createHostFile(gatewayIp, netName, "server_master",
@@ -192,7 +201,10 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
             TincConfigUtils.createTincUpAndDown(gatewayIp, netName, newSegment + ".1");
 
             // G. 推送完成后远程重载 tincd
-            TincConfigUtils.reloadGatewayTinc(gatewayIp, netName);
+            tincRuntimeManager.reloadNetwork(netName);
+            tincRuntimeManager.ensureNetworkReady(netName);
+            tincNetworkMange.setNetworkStatus("READY");
+            tincNetworkMangeMapper.updateTincNetworkMange(tincNetworkMange);
 
         } catch (Exception e) {
             // 事务回滚
@@ -205,37 +217,15 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int deleteTincNetworkMangeByIds(Long[] ids) {
-        if (ids != null) {
-            for (Long id : ids) {
-                deleteTincNetworkMangeById(id);
-            }
-        }
-        return tincNetworkMangeMapper.deleteTincNetworkMangeByIds(ids);
+        throw new IllegalStateException(
+                "TINC_PHYSICAL_DELETE_DISABLED: 比赛安全模式禁止删除 Tinc 网络，请使用停用或维护流程");
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int deleteTincNetworkMangeById(Long id) {
-        TincNetworkMange network = tincNetworkMangeMapper.selectTincNetworkMangeById(id);
-        if (network != null) {
-            try {
-                String serverName = network.getServerName();
-                MangeServer query = new MangeServer();
-                query.setServerName(serverName);
-                List<MangeServer> serverList = mangeServerService.selectMangeServerList(query);
-                String gatewayIp = null;
-                if (serverList != null && !serverList.isEmpty()) {
-                    gatewayIp = serverList.get(0).getServerIp();
-                }
-
-                // 物理清理本地备份 + 远程网关配置及进程
-                TincConfigUtils.deleteNetwork(gatewayIp, network.getNetworkName());
-            } catch (Exception e) {
-                log.error("物理清理网络失败: id={}, netName={}", id, network.getNetworkName(), e);
-                throw new RuntimeException("清理物理机网络配置失败: " + e.getMessage(), e);
-            }
-        }
-        return tincNetworkMangeMapper.deleteTincNetworkMangeById(id);
+        throw new IllegalStateException(
+                "TINC_PHYSICAL_DELETE_DISABLED: 比赛安全模式禁止删除 Tinc 网络，请使用停用或维护流程");
     }
 
     @Override

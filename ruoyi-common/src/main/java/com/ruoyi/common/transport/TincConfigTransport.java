@@ -24,6 +24,9 @@ public interface TincConfigTransport {
      */
     void pushFile(String targetHost, String remotePath, String content, boolean executable);
 
+    /** Read a configuration file without logging its contents. */
+    String readFile(String targetHost, String remotePath);
+
     /**
      * 推送整个目录到目标网关（如 hosts/ 目录下的所有节点公钥文件）
      *

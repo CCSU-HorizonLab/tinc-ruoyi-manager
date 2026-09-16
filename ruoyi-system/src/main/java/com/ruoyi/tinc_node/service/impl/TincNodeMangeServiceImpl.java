@@ -113,7 +113,7 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
             tincNodeMange.setPassword(null);
             tincNodeMange.setStatus("已配置");
             int rows = tincNodeMangeMapper.updateTincNodeMange(tincNodeMange);
-            log.info("节点 [{}] 公钥已推送至网关 [{}] 的 hosts 目录", nodeName, gatewayIp);
+        log.info("节点 [{}] 公钥已推送至对应网关的 hosts 目录", nodeName);
             return rows;
         }
 
@@ -124,36 +124,15 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int deleteTincNodeMangeByIds(Long[] ids) {
-        log.info("【系统清理】收到批量删除节点请求，IDs: {}", java.util.Arrays.toString(ids));
-        if (ids != null) {
-            for (Long id : ids) {
-                deleteTincNodeMangeById(id);
-            }
-        }
-        return tincNodeMangeMapper.deleteTincNodeMangeByIds(ids);
+        throw new IllegalStateException(
+                "TINC_PHYSICAL_DELETE_DISABLED: 比赛安全模式禁止删除 Tinc 节点，请使用停用或维护流程");
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int deleteTincNodeMangeById(Long id) {
-        log.info("【系统清理】开始物理删除节点，ID: {}", id);
-        TincNodeMange node = tincNodeMangeMapper.selectTincNodeMangeById(id);
-        if (node != null) {
-            log.info("【系统清理】查找到节点信息，名称: {}, 网络: {}", node.getNodeName(), node.getNetworkName());
-            try {
-                String netName = node.getNetworkName();
-                String gatewayIp = getGatewayIpForNetwork(netName);
-
-                // 物理删除本地备份 + 远程网关节点配置，并重载网关
-                TincConfigUtils.deleteNode(gatewayIp, netName, node.getNodeName());
-            } catch (Exception e) {
-                log.error("物理清理节点失败: id={}, nodeName={}", id, node.getNodeName(), e);
-                throw new RuntimeException("清理物理机节点配置失败: " + e.getMessage(), e);
-            }
-        } else {
-            log.warn("【系统清理】数据库中未查找到 ID: {} 对应的节点，跳过物理清理", id);
-        }
-        return tincNodeMangeMapper.deleteTincNodeMangeById(id);
+        throw new IllegalStateException(
+                "TINC_PHYSICAL_DELETE_DISABLED: 比赛安全模式禁止删除 Tinc 节点，请使用停用或维护流程");
     }
 
     /**

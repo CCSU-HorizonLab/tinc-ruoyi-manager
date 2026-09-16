@@ -20,6 +20,9 @@ server:
   servlet:
     # 应用的访问路径
     context-path: /
+    encoding:
+      # 二进制下载由控制器自行指定 Content-Type，避免全局 UTF-8 强制附加到 ZIP 响应。
+      force-response: false
   tomcat:
     # tomcat的URI编码
     uri-encoding: UTF-8
@@ -34,7 +37,8 @@ server:
 # 日志配置
 logging:
   level:
-    com.ruoyi: debug
+    # 生产默认不输出 MyBatis SQL 参数，避免节点密码、Token 等敏感字段进入日志。
+    com.ruoyi: info
     org.springframework: warn
 
 # 用户配置
@@ -128,15 +132,24 @@ referer:
 
 # ==================== Tinc 配置传输设置 ====================
 tinc:
+  runtime:
+    # 生产部署覆盖为 /etc/tinc；命令均使用固定绝对路径和参数数组。
+    config-root: /etc/tinc
+    command-timeout-ms: 10000
+    ready-timeout-ms: 15000
+    use-helper: false
+    helper-use-sudo: false
+    file-owner: root
+    file-group: root
   transport:
     # 传输模式：local（本地 · 单机部署） / ssh（远程推送 · 分离部署）
-    mode: ssh
+    mode: local
     # SSH 模式通用配置（当 mode=ssh 时生效，也可被 mange_server 表逐台覆盖）
     ssh:
       default-port: 22
       default-user: root
       # mwiede JSch 0.2.20 已支持 OpenSSH ed25519 格式私钥，直接使用现有密钥
-      default-key-path: C:/Users/shuguang060709/.ssh/id_ed25519
+      default-key-path:
       default-password:
       connect-timeout: 10000                     # SSH 连接超时 (ms)
 
