@@ -79,6 +79,17 @@
       </el-col>
       <el-col :span="1.5">
         <el-button
+          type="danger"
+          plain
+          icon="el-icon-delete"
+          size="mini"
+          :disabled="multiple"
+          @click="handleDelete"
+          v-hasPermi="['node_mange:node_mange:remove']"
+        >删除</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button
           type="warning"
           plain
           icon="el-icon-download"
@@ -115,6 +126,13 @@
             @click="handleUpdate(scope.row)"
             v-hasPermi="['node_mange:node_mange:edit']"
           >修改</el-button>
+          <el-button
+            size="mini"
+            type="text"
+            icon="el-icon-delete"
+            @click="handleDelete(scope.row)"
+            v-hasPermi="['node_mange:node_mange:remove']"
+          >删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -331,7 +349,7 @@ export default {
     },
     handleDelete(row) {
       const ids = row.id || this.ids
-      this.$modal.confirm('是否确认删除节点编号为"' + ids + '"的数据项？').then(function() {
+      this.$modal.confirm('是否确认删除节点编号为"' + ids + '"的管理记录？服务器 hosts 配置会保留，现有 VPN 不会被强制断开。').then(function() {
         return delNode(ids)
       }).then(() => {
         this.getList()

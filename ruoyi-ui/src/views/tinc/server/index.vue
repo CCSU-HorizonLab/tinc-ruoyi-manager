@@ -44,6 +44,16 @@
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
         <el-button
+          type="primary"
+          plain
+          icon="el-icon-plus"
+          size="mini"
+          @click="handleAdd"
+          v-hasPermi="['manger:manger:add']"
+        >新增</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button
           type="success"
           plain
           icon="el-icon-edit"
@@ -52,6 +62,17 @@
           @click="handleUpdate"
           v-hasPermi="['manger:manger:edit']"
         >修改</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button
+          type="danger"
+          plain
+          icon="el-icon-delete"
+          size="mini"
+          :disabled="multiple"
+          @click="handleDelete"
+          v-hasPermi="['manger:manger:remove']"
+        >删除</el-button>
       </el-col>
       <el-col :span="1.5">
         <el-button
@@ -88,6 +109,13 @@
             @click="handleUpdate(scope.row)"
             v-hasPermi="['manger:manger:edit']"
           >修改</el-button>
+          <el-button
+            size="mini"
+            type="text"
+            icon="el-icon-delete"
+            @click="handleDelete(scope.row)"
+            v-hasPermi="['manger:manger:remove']"
+          >删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -281,7 +309,7 @@ export default {
     },
     handleDelete(row) {
       const ids = row.id || this.ids
-      this.$modal.confirm('是否确认删除服务器编号为"' + ids + '"的数据项？').then(function() {
+      this.$modal.confirm('是否确认删除服务器编号为"' + ids + '"的管理记录？仍有关联网络或节点时后端会拒绝删除。').then(function() {
         return delServer(ids)
       }).then(() => {
         this.getList()

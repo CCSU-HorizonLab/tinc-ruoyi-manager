@@ -124,15 +124,28 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int deleteTincNodeMangeByIds(Long[] ids) {
-        throw new IllegalStateException(
-                "TINC_PHYSICAL_DELETE_DISABLED: 比赛安全模式禁止删除 Tinc 节点，请使用停用或维护流程");
+        if (ids == null || ids.length == 0) {
+            return 0;
+        }
+        for (Long id : ids) {
+            TincNodeMange node = tincNodeMangeMapper.selectTincNodeMangeById(id);
+            if (node != null) {
+                log.warn("删除 Tinc 节点管理记录但保留网关 hosts 配置: id={}, nodeName={}, netName={}",
+                        id, node.getNodeName(), node.getNetworkName());
+            }
+        }
+        return tincNodeMangeMapper.deleteTincNodeMangeByIds(ids);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int deleteTincNodeMangeById(Long id) {
-        throw new IllegalStateException(
-                "TINC_PHYSICAL_DELETE_DISABLED: 比赛安全模式禁止删除 Tinc 节点，请使用停用或维护流程");
+        TincNodeMange node = tincNodeMangeMapper.selectTincNodeMangeById(id);
+        if (node != null) {
+            log.warn("删除 Tinc 节点管理记录但保留网关 hosts 配置: id={}, nodeName={}, netName={}",
+                    id, node.getNodeName(), node.getNetworkName());
+        }
+        return tincNodeMangeMapper.deleteTincNodeMangeById(id);
     }
 
     /**

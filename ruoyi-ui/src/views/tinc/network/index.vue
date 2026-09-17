@@ -55,6 +55,17 @@
       </el-col>
       <el-col :span="1.5">
         <el-button
+          type="danger"
+          plain
+          icon="el-icon-delete"
+          size="mini"
+          :disabled="multiple"
+          @click="handleDelete"
+          v-hasPermi="['TincNetworkMange:TincNetworkMange:remove']"
+        >删除</el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button
           type="warning"
           plain
           icon="el-icon-download"
@@ -95,6 +106,13 @@
             @click="handleUpdate(scope.row)"
             v-hasPermi="['TincNetworkMange:TincNetworkMange:edit']"
           >修改</el-button>
+          <el-button
+            size="mini"
+            type="text"
+            icon="el-icon-delete"
+            @click="handleDelete(scope.row)"
+            v-hasPermi="['TincNetworkMange:TincNetworkMange:remove']"
+          >删除</el-button>
           <el-button
             size="mini"
             type="text"
@@ -148,7 +166,7 @@
 </template>
 
 <script>
-import { listNetwork, getNetwork, getNetworkRuntime, addNetwork, updateNetwork } from "@/api/tinc/network"
+import { listNetwork, getNetwork, getNetworkRuntime, delNetwork, addNetwork, updateNetwork } from "@/api/tinc/network"
 import { listServer } from "@/api/tinc/server"
 
 export default {
@@ -341,6 +359,15 @@ export default {
           this.isSubmitting = false;
         }
       })
+    },
+    handleDelete(row) {
+      const ids = row.id || this.ids
+      this.$modal.confirm('是否确认删除内网编号为"' + ids + '"的管理记录？正在运行或仍有关联节点的网络不能删除；本操作不会停止 Tinc，也不会删除 /etc/tinc 配置和私钥。').then(function() {
+        return delNetwork(ids)
+      }).then(() => {
+        this.getList()
+        this.$modal.msgSuccess("删除成功")
+      }).catch(() => {})
     },
     handleExport() {
       this.download('tinc/network/export', {

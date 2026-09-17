@@ -3,9 +3,14 @@ package com.ruoyi.tinc_server.service.impl;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.tinc_server.mapper.MangeServerMapper;
 import com.ruoyi.tinc_server.domain.MangeServer;
 import com.ruoyi.tinc_server.service.IMangeServerService;
+import com.ruoyi.tinc_network.domain.TincNetworkMange;
+import com.ruoyi.tinc_network.mapper.TincNetworkMangeMapper;
+import com.ruoyi.tinc_node.domain.TincNodeMange;
+import com.ruoyi.tinc_node.mapper.TincNodeMangeMapper;
 
 /**
  * 服务器集群管理Service业务层处理
@@ -20,6 +25,12 @@ public class MangeServerServiceImpl implements IMangeServerService
     // 动态代理，将Mapper接口的方法映射到XML文件中的SQL语句（创建对象）
     @Autowired
     private MangeServerMapper mangeServerMapper;
+
+    @Autowired
+    private TincNetworkMangeMapper tincNetworkMangeMapper;
+
+    @Autowired
+    private TincNodeMangeMapper tincNodeMangeMapper;
 
     /**
      * 查询服务器集群管理
@@ -101,8 +112,15 @@ public class MangeServerServiceImpl implements IMangeServerService
      * @return 结果
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int deleteMangeServerByIds(Long[] Ids)
     {
+        if (Ids == null || Ids.length == 0) {
+            return 0;
+        }
+        for (Long id : Ids) {
+            validateServerDeletion(id);
+        }
         return mangeServerMapper.deleteMangeServerByIds(Ids);
     }
 
@@ -113,8 +131,34 @@ public class MangeServerServiceImpl implements IMangeServerService
      * @return 结果
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int deleteMangeServerById(Long Id)
     {
+        validateServerDeletion(Id);
         return mangeServerMapper.deleteMangeServerById(Id);
+    }
+
+    private void validateServerDeletion(Long id)
+    {
+        MangeServer server = mangeServerMapper.selectMangeServerById(id);
+        if (server == null) {
+            return;
+        }
+
+        TincNetworkMange networkQuery = new TincNetworkMange();
+        networkQuery.setServerName(server.getServerName());
+        List<TincNetworkMange> networks = tincNetworkMangeMapper.selectTincNetworkMangeList(networkQuery);
+        if (networks != null && !networks.isEmpty()) {
+            throw new IllegalStateException("TINC_SERVER_IN_USE: 服务器 [" + server.getServerName()
+                    + "] 仍有关联网络，不能删除");
+        }
+
+        TincNodeMange nodeQuery = new TincNodeMange();
+        nodeQuery.setServerName(server.getServerName());
+        List<TincNodeMange> nodes = tincNodeMangeMapper.selectTincNodeMangeList(nodeQuery);
+        if (nodes != null && !nodes.isEmpty()) {
+            throw new IllegalStateException("TINC_SERVER_IN_USE: 服务器 [" + server.getServerName()
+                    + "] 仍有关联节点，不能删除");
+        }
     }
 }

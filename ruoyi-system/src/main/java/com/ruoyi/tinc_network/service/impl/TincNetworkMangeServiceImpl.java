@@ -8,6 +8,9 @@ import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.RsaUtils;
 import com.ruoyi.common.utils.TincConfigUtils;
 import com.ruoyi.common.tinc.runtime.TincRuntimeManager;
+import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
+import com.ruoyi.tinc_node.domain.TincNodeMange;
+import com.ruoyi.tinc_node.mapper.TincNodeMangeMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +41,9 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
 
     @Autowired
     private TincRuntimeManager tincRuntimeManager;
+
+    @Autowired
+    private TincNodeMangeMapper tincNodeMangeMapper;
 
     @Override
     public TincNetworkMange selectTincNetworkMangeById(Long id)
@@ -217,15 +223,48 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int deleteTincNetworkMangeByIds(Long[] ids) {
-        throw new IllegalStateException(
-                "TINC_PHYSICAL_DELETE_DISABLED: 比赛安全模式禁止删除 Tinc 网络，请使用停用或维护流程");
+        if (ids == null || ids.length == 0) {
+            return 0;
+        }
+        for (Long id : ids) {
+            validateNetworkRecordDeletion(id);
+        }
+        return tincNetworkMangeMapper.deleteTincNetworkMangeByIds(ids);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int deleteTincNetworkMangeById(Long id) {
-        throw new IllegalStateException(
-                "TINC_PHYSICAL_DELETE_DISABLED: 比赛安全模式禁止删除 Tinc 网络，请使用停用或维护流程");
+        validateNetworkRecordDeletion(id);
+        return tincNetworkMangeMapper.deleteTincNetworkMangeById(id);
+    }
+
+    /**
+     * 删除仅针对后台管理记录。运行中的网络或仍有节点的网络必须先完成迁移/停用；
+     * 此处绝不停止 tincd，也不删除 /etc/tinc 下的配置和私钥。
+     */
+    private void validateNetworkRecordDeletion(Long id) {
+        TincNetworkMange network = tincNetworkMangeMapper.selectTincNetworkMangeById(id);
+        if (network == null) {
+            return;
+        }
+
+        TincNodeMange nodeQuery = new TincNodeMange();
+        nodeQuery.setNetworkName(network.getNetworkName());
+        List<TincNodeMange> nodes = tincNodeMangeMapper.selectTincNodeMangeList(nodeQuery);
+        if (nodes != null && !nodes.isEmpty()) {
+            throw new IllegalStateException("TINC_NETWORK_IN_USE: 网络 [" + network.getNetworkName()
+                    + "] 仍有关联节点，请先删除或迁移节点");
+        }
+
+        TincNetworkStatus status = tincRuntimeManager.inspectNetworkStatus(network.getNetworkName());
+        if (status.isSystemdActive() || status.isMainPidPresent() || status.isInterfacePresent()
+                || status.isTcpListening() || status.isUdpListening()) {
+            throw new IllegalStateException("TINC_NETWORK_ACTIVE: 网络 [" + network.getNetworkName()
+                    + "] 仍在运行，禁止删除管理记录；请先通过独立维护流程停用网络");
+        }
+
+        log.warn("删除 Tinc 网络管理记录但保留物理配置: id={}, netName={}", id, network.getNetworkName());
     }
 
     @Override
