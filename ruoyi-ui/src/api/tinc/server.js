@@ -37,3 +37,10 @@ export function delServer(id) {
     method: 'delete'
   })
 }
+
+export function probeServer(id) {
+  return request({
+    url: '/tinc/server/' + id + '/agent/probe',
+    method: 'post'
+  })
+}

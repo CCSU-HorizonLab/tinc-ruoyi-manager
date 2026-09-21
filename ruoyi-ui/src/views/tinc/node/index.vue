@@ -148,21 +148,21 @@
     <!-- 添加或修改节点管理对话框 -->
     <el-dialog :title="title" :visible.sync="open" width="500px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="80px">
-        <el-form-item label="接入服务器" prop="serverName">
-          <el-select v-model="form.serverName" placeholder="请选择接入服务器" @change="onServerChange">
-            <el-option v-for="server in serverOptions" :key="server.serverName" :label="server.serverName" :value="server.serverName"></el-option>
+        <el-form-item label="接入服务器" prop="selectedServerId">
+          <el-select v-model="form.selectedServerId" placeholder="请选择接入服务器" @change="onServerChange" :disabled="form.id != null">
+            <el-option v-for="server in serverOptions" :key="server.id" :label="server.serverName" :value="server.id"></el-option>
           </el-select>
         </el-form-item>
-        <el-form-item label="所属内网" prop="networkName">
-           <el-select v-model="form.networkName" placeholder="请选择所属内网" :disabled="!form.serverName" @change="onNetworkChange">
-            <el-option v-for="network in networkOptions" :key="network.networkName" :label="network.networkName" :value="network.networkName"></el-option>
+        <el-form-item label="所属内网" prop="networkId">
+           <el-select v-model="form.networkId" placeholder="请选择所属内网" :disabled="!form.selectedServerId || form.id != null" @change="onNetworkChange">
+            <el-option v-for="network in networkOptions" :key="network.id" :label="network.networkName" :value="network.id"></el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="密码" prop="password">
           <el-input v-model="form.password" placeholder="请输入密码" />
         </el-form-item>
         <el-form-item label="节点名称" prop="nodeName">
-          <el-input v-model="form.nodeName" placeholder="请输入节点名称" />
+          <el-input v-model="form.nodeName" placeholder="请输入节点名称" :disabled="form.id != null" />
         </el-form-item>
         <el-form-item label="内网ip" prop="networkIp">
           <el-input v-model="form.networkIp" placeholder="请输入内网ip" />
@@ -217,10 +217,10 @@ export default {
         tableId: [
           { required: true, message: "设备ID不能为空", trigger: "blur" }
         ],
-        serverName: [
+        selectedServerId: [
           { required: true, message: "接入服务器不能为空", trigger: "blur" }
         ],
-        networkName: [
+        networkId: [
           { required: true, message: "所属内网不能为空", trigger: "blur" }
         ],
         password: [
@@ -271,6 +271,8 @@ export default {
     reset() {
       this.form = {
         id: null,
+        networkId: null,
+        selectedServerId: null,
         userName: null,
         tableId: null,
         serverName: null,
@@ -301,7 +303,7 @@ export default {
     handleAdd() {
       this.reset()
       this.currentServer = null
-      this.form.serverName = ''
+      this.form.selectedServerId = null
       this.open = true
       this.title = "添加节点"
     },
@@ -310,7 +312,9 @@ export default {
       const id = row.id || this.ids
       getNode(id).then(response => {
         this.form = response.data
-        this.onServerChange(this.form.serverName)
+        const server = this.serverOptions.find(s => s.serverName === this.form.serverName)
+        this.$set(this.form, 'selectedServerId', server ? server.id : null)
+        this.onServerChange(this.form.selectedServerId, false)
         this.open = true
         this.title = "修改节点"
       })
@@ -349,7 +353,7 @@ export default {
     },
     handleDelete(row) {
       const ids = row.id || this.ids
-      this.$modal.confirm('是否确认删除节点编号为"' + ids + '"的管理记录？服务器 hosts 配置会保留，现有 VPN 不会被强制断开。').then(function() {
+      this.$modal.confirm('是否确认删除节点编号为"' + ids + '"？后端将先撤销 hosts 授权、重载并验证网络，再删除管理记录。').then(function() {
         return delNode(ids)
       }).then(() => {
         this.getList()
@@ -370,30 +374,35 @@ export default {
         this.$modal.msgError('获取服务器列表失败')
       })
     },
-    onServerChange(serverName) {
-      const server = this.serverOptions.find(s => s.serverName === serverName)
+    onServerChange(serverId, clearNetwork = true) {
+      const server = this.serverOptions.find(s => String(s.id) === String(serverId))
       this.currentServer = server
-      this.form.networkName = ''
+      this.form.serverName = server ? server.serverName : null
+      if (clearNetwork) {
+        this.form.networkId = null
+        this.form.networkName = null
+      }
       this.networkOptions = []
 
       if(server){
-        this.loadNetworkOptions(server.serverName)
+        this.loadNetworkOptions(server.id)
       }
     },
-    loadNetworkOptions(serverName){
-      listNetwork({serverName : serverName}).then(response =>{
+    loadNetworkOptions(serverId){
+      listNetwork({serverId : serverId}).then(response =>{
         this.networkOptions = response.rows
       }).catch(error =>{
         console.error('获取内网列表失败:', error)
         this.$modal.msgError('获取内网列表失败')
       })
     },
-    onNetworkChange(networkName) {
-      const network = this.networkOptions.find(n => n.networkName === networkName);
+    onNetworkChange(networkId) {
+      const network = this.networkOptions.find(n => String(n.id) === String(networkId));
 
       if (!network) {
         return;
       }
+      this.form.networkName = network.networkName;
 
       if (network.segment) {
         try {

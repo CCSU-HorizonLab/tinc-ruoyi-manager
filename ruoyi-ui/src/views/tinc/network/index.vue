@@ -92,8 +92,8 @@
       <el-table-column label="节点数量" align="center" prop="nodes" />
       <el-table-column label="运行状态" align="center" min-width="120">
         <template slot-scope="scope">
-          <el-tag :type="runtimeTagType(scope.row.networkName)">
-            {{ runtimeLabel(scope.row.networkName) }}
+          <el-tag :type="runtimeTagType(scope.row.id)">
+            {{ runtimeLabel(scope.row.id) }}
           </el-tag>
         </template>
       </el-table-column>
@@ -117,7 +117,7 @@
             size="mini"
             type="text"
             icon="el-icon-refresh"
-            @click="loadRuntimeStatus(scope.row.networkName)"
+            @click="loadRuntimeStatus(scope.row.id)"
             v-hasPermi="['TincNetworkMange:TincNetworkMange:query']"
           >刷新状态</el-button>
         </template>
@@ -135,13 +135,13 @@
     <!-- 添加或修改内网管理对话框 -->
   <el-dialog :title="title" :visible.sync="open" width="500px" append-to-body>
   <el-form ref="form" :model="form" :rules="rules" label-width="80px">
-    <el-form-item label="接入服务器" prop="serverName">
-       <el-select v-model="form.serverName" placeholder="请选择接入服务器" @change="onServerChange">
-        <el-option v-for="server in serverOptions" :key="server.serverName" :label="server.serverName" :value="server.serverName"></el-option>
+    <el-form-item label="接入服务器" prop="serverId">
+       <el-select v-model="form.serverId" placeholder="请选择接入服务器" @change="onServerChange">
+        <el-option v-for="server in serverOptions" :key="server.id" :label="server.serverName" :value="server.id"></el-option>
       </el-select>
     </el-form-item>
     <el-form-item label="内网名称" prop="networkName">
-      <el-input v-model="form.networkName" placeholder="请输入内网名称" />
+      <el-input v-model="form.networkName" placeholder="请输入内网名称" :disabled="form.id != null" />
     </el-form-item>
    <el-form-item label="网段" prop="segment">
        <el-select v-model="form.segment" placeholder="请选择网段" :disabled="!currentServer">
@@ -195,7 +195,7 @@ export default {
       },
       form: {},
       rules: {
-        serverName: [
+        serverId: [
           { required: true, message: "接入服务器不能为空", trigger: "blur" }
         ],
         networkName: [
@@ -244,31 +244,37 @@ export default {
       })
     },
     loadRuntimeStatuses(networks) {
-      ;(networks || []).forEach(network => this.loadRuntimeStatus(network.networkName, false))
+      ;(networks || []).forEach(network => this.loadRuntimeStatus(network.id, false))
     },
-    loadRuntimeStatus(netName, notify = true) {
-      if (!netName) return
-      this.$set(this.runtimeStatus, netName, { loading: true })
-      getNetworkRuntime(netName).then(response => {
-        this.$set(this.runtimeStatus, netName, response.data || { readiness: 'NOT_READY' })
+    loadRuntimeStatus(networkId, notify = true) {
+      if (!networkId) return
+      this.$set(this.runtimeStatus, networkId, { loading: true })
+      getNetworkRuntime(networkId).then(response => {
+        if (!response || !response.data) {
+          throw new Error('服务端未返回运行状态')
+        }
+        this.$set(this.runtimeStatus, networkId, response.data)
         if (notify) this.$modal.msgSuccess('运行状态已刷新')
       }).catch(error => {
-        this.$set(this.runtimeStatus, netName, {
-          readiness: 'NOT_READY',
-          failureCode: error.response?.data?.code || 'TINC_RUNTIME_NOT_READY'
+        this.$set(this.runtimeStatus, networkId, {
+          readiness: 'UNKNOWN',
+          failureCode: 'STATUS_QUERY_FAILED',
+          failureMessage: error && error.message ? error.message : '运行状态查询失败'
         })
         if (notify) this.$modal.msgError('运行状态查询失败')
       })
     },
-    runtimeLabel(netName) {
-      const status = this.runtimeStatus[netName]
+    runtimeLabel(networkId) {
+      const status = this.runtimeStatus[networkId]
       if (!status || status.loading) return '检查中'
       if (status.readiness === 'READY') return 'READY'
-      return status.failureCode || 'NOT READY'
+      if (status.readiness === 'UNKNOWN') return status.failureCode || 'UNKNOWN'
+      return status.failureCode || status.readiness || 'NOT READY'
     },
-    runtimeTagType(netName) {
-      const status = this.runtimeStatus[netName]
+    runtimeTagType(networkId) {
+      const status = this.runtimeStatus[networkId]
       if (!status || status.loading) return 'info'
+      if (status.readiness === 'UNKNOWN') return 'info'
       return status.readiness === 'READY' ? 'success' : 'danger'
     },
     cancel() {
@@ -278,6 +284,7 @@ export default {
     reset() {
       this.form = {
         id: null,
+        serverId: null,
         rootName: null,
         serverName: null,
         networkName: null,
@@ -309,7 +316,7 @@ export default {
       this.currentServer = null;
       this.segmentOptions = [];
       this.portOptions = [];
-      this.form.serverName = '';
+      this.form.serverId = null;
       this.open = true
       this.title = "添加内网"
     },
@@ -320,7 +327,7 @@ export default {
         this.form = response.data
         const savedPort = this.form.port;
         const savedSegment = this.form.segment;
-        this.onServerChange(this.form.serverName);
+        this.onServerChange(this.form.serverId);
         this.form.port = savedPort;
         this.form.segment = savedSegment;
         this.open = true
@@ -384,9 +391,10 @@ export default {
       });
     },
 
-    onServerChange(serverName){
-      const server = this.serverOptions.find(s => s.serverName === serverName);
+    onServerChange(serverId){
+      const server = this.serverOptions.find(s => String(s.id) === String(serverId));
       this.currentServer = server;
+      this.form.serverName = server ? server.serverName : null;
 
       this.form.port = '';
       this.form.segment = '';

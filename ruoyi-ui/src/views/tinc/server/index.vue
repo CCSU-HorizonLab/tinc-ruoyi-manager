@@ -92,13 +92,21 @@
       <el-table-column label="id" align="center" prop="id" />
       <el-table-column label="服务器名字" align="center" prop="serverName" />
       <el-table-column label="服务器ip" align="center" prop="serverIp" />
+      <el-table-column label="运行模式" align="center" prop="runtimeType" width="90" />
       <el-table-column label="内网数量" align="center" prop="number" />
-      <el-table-column label="状态" align="center" prop="status">
+      <el-table-column label="Agent状态" align="center" prop="agentStatus" width="120">
         <template slot-scope="scope">
-          <el-tag :type="scope.row.status == '1' ? 'success' : 'info'">
-            {{ scope.row.status == '1' ? '在线' : '离线' }}
+          <el-tag :type="scope.row.agentStatus === 'ONLINE' || scope.row.agentStatus === 'LOCAL' ? 'success' : (scope.row.agentStatus === 'DEGRADED' ? 'warning' : 'danger')">
+            {{ scope.row.agentStatus || 'UNREACHABLE' }}
           </el-tag>
         </template>
+      </el-table-column>
+      <el-table-column label="版本" align="center" prop="agentVersion" width="90" />
+      <el-table-column label="CPU/内存" align="center" width="120">
+        <template slot-scope="scope">{{ scope.row.agentCpuUsage == null ? '-' : scope.row.agentCpuUsage + '%' }} / {{ scope.row.agentMemoryUsage == null ? '-' : scope.row.agentMemoryUsage + '%' }}</template>
+      </el-table-column>
+      <el-table-column label="最后探针" align="center" prop="agentLastSeen" width="160">
+        <template slot-scope="scope">{{ parseTime(scope.row.agentLastSeen) || '-' }}</template>
       </el-table-column>
       <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
         <template slot-scope="scope">
@@ -116,6 +124,14 @@
             @click="handleDelete(scope.row)"
             v-hasPermi="['manger:manger:remove']"
           >删除</el-button>
+          <el-button
+            v-if="scope.row.runtimeType === 'AGENT'"
+            size="mini"
+            type="text"
+            icon="el-icon-refresh"
+            @click="handleProbe(scope.row)"
+            v-hasPermi="['manger:manger:query']"
+          >探测Agent</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -132,11 +148,26 @@
     <el-dialog :title="title" :visible.sync="open" width="500px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="80px">
         <el-form-item label="服务器名字" prop="serverName">
-          <el-input v-model="form.serverName" placeholder="请输入服务器名字" />
+          <el-input v-model="form.serverName" placeholder="请输入服务器名字" :disabled="form.id != null" />
         </el-form-item>
         <el-form-item label="服务器ip" prop="serverIp">
           <el-input v-model="form.serverIp" placeholder="请输入服务器ip" />
         </el-form-item>
+        <el-form-item label="运行模式" prop="runtimeType">
+          <el-radio-group v-model="form.runtimeType">
+            <el-radio label="LOCAL">本机</el-radio>
+            <el-radio label="AGENT">Access Agent</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <template v-if="form.runtimeType === 'AGENT'">
+          <el-form-item label="Agent端口" prop="agentPort">
+            <el-input-number v-model="form.agentPort" :min="1" :max="65535" />
+          </el-form-item>
+          <el-form-item label="Agent密钥" prop="agentSecret">
+            <el-input v-model="form.agentSecret" type="password" show-password
+                      :placeholder="form.id ? '留空表示保持原密钥' : '请输入至少32位随机密钥'" />
+          </el-form-item>
+        </template>
         <el-form-item label="起始网段" prop="startSegment">
           <el-input v-model="form.startSegment" placeholder="请输入起始网段" />
         </el-form-item>
@@ -162,7 +193,7 @@
 </template>
 
 <script>
-import { listServer, getServer, delServer, addServer, updateServer } from "@/api/tinc/server"
+import { listServer, getServer, delServer, addServer, updateServer, probeServer } from "@/api/tinc/server"
 
 export default {
   name: "Server",
@@ -249,7 +280,10 @@ export default {
         endPort: null,
         remark: null,
         number: null,
-        status: null
+        status: null,
+        runtimeType: 'LOCAL',
+        agentPort: 9088,
+        agentSecret: null
       }
       this.resetForm("form")
     },
@@ -315,6 +349,12 @@ export default {
         this.getList()
         this.$modal.msgSuccess("删除成功")
       }).catch(() => {})
+    },
+    handleProbe(row) {
+      probeServer(row.id).then(response => {
+        this.$modal.msgSuccess('Agent 状态：' + (response.data.agentStatus || 'UNREACHABLE'))
+        this.getList()
+      })
     },
     handleExport() {
       this.download('tinc/server/export', {
