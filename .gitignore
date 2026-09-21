@@ -49,3 +49,10 @@ nbdist/
 node_modules/
 
 ruoyi_deploy.bat
+
+# Redis
+dump.rdb
+*.rdb
+
+# Temporary directory
+tmp/
