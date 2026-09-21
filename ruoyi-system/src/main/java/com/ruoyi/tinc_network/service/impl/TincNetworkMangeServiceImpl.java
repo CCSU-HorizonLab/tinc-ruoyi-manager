@@ -2,15 +2,14 @@ package com.ruoyi.tinc_network.service.impl;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-
 import com.ruoyi.common.utils.DateUtils;
-import com.ruoyi.common.utils.RsaUtils;
-import com.ruoyi.common.utils.TincConfigUtils;
-import com.ruoyi.common.tinc.runtime.TincRuntimeManager;
+import com.ruoyi.common.tinc.access.AccessNetworkSpec;
+import com.ruoyi.common.tinc.access.AccessOperationResult;
 import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
 import com.ruoyi.tinc_node.mapper.TincNodeMangeMapper;
+import com.ruoyi.tinc.validation.TincModelValidator;
+import com.ruoyi.tinc.runtime.TincRuntimeRouter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,7 +39,7 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
     private IMangeServerService mangeServerService;
 
     @Autowired
-    private TincRuntimeManager tincRuntimeManager;
+    private TincRuntimeRouter tincRuntimeRouter;
 
     @Autowired
     private TincNodeMangeMapper tincNodeMangeMapper;
@@ -57,70 +56,43 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
         return tincNetworkMangeMapper.selectTincNetworkMangeList(tincNetworkMange);
     }
 
+    @Override
+    public TincNetworkMange selectByNetworkNameExact(String networkName)
+    {
+        List<TincNetworkMange> matches = tincNetworkMangeMapper.selectByNetworkNameExact(networkName);
+        if (matches == null || matches.isEmpty()) {
+            return null;
+        }
+        if (matches.size() != 1) {
+            throw new IllegalStateException("网络名称存在重复记录，无法建立稳定关联");
+        }
+        return matches.get(0);
+    }
+
     /**
-     * 新增Tinc内网集群管理 (核心改造 — 支持远程推送)
-     * <p>
-     * 1. 写入数据库
-     * 2. 根据所选服务器查出网关真实 IP
-     * 3. 在本地生成配置文件副本
-     * 4. 通过 SSH/SCP 推送到远程 Tinc VPN 网关
-     * 5. 推送完成后远程重载 tincd
-     * </p>
+     * 新增 Tinc 网络：先建立稳定 Server 关系，再由 Runtime Router 在所选
+     * LOCAL Runtime 或 Access Agent 上创建并验证运行网络。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int insertTincNetworkMange(TincNetworkMange network)
     {
-        // 1. 设置基础信息并入库
+        tincNetworkMangeMapper.lockAllServerIdsForNetworkMutation();
+        MangeServer selectedServer = requireServer(network.getServerId());
+        network.setServerName(selectedServer.getServerName());
+        network.setNetworkName(TincModelValidator.requireNewRuntimeName(network.getNetworkName(), "网络名称"));
+        network.setPort(TincModelValidator.requirePort(network.getPort()));
+        network.setSegment(TincModelValidator.requireSegment(network.getSegment()));
+        validateNetworkResources(network, selectedServer);
+
+        // 1. 所有稳定关系和冲突检查通过后再入库，避免先污染数据库或覆盖 Runtime。
         network.setCreateTime(DateUtils.getNowDate());
         network.setNetworkStatus("初始化中");
         int rows = tincNetworkMangeMapper.insertTincNetworkMange(network);
 
-        // 2. 生成配置 → 本地副本 + 远程推送
+        // 2. 只在所选 Server 对应的 Runtime 创建配置并等待 READY。
         try {
-            String netName = network.getNetworkName();
-
-            // 根据所选服务器名称查出真实公网 IP
-            String selectedServerName = network.getServerName();
-            if (selectedServerName == null || selectedServerName.isEmpty()) {
-                throw new RuntimeException("请选择接入服务器！");
-            }
-
-            MangeServer query = new MangeServer();
-            query.setServerName(selectedServerName);
-            List<MangeServer> serverList = mangeServerService.selectMangeServerList(query);
-
-            if (serverList == null || serverList.isEmpty()) {
-                throw new RuntimeException("系统里找不到名为 [" + selectedServerName + "] 的服务器，请检查服务器集群管理！");
-            }
-
-            // ★ 关键：网关真实 IP，后续所有推送都基于这个 IP
-            String gatewayIp = serverList.get(0).getServerIp();
-
-            // A. 初始化目录（本地 + 触发远程 mkdirs）
-            TincConfigUtils.initNetworkEnv(gatewayIp, netName);
-
-            // B. 生成 4096位 密钥
-            Map<String, String> keyMap = RsaUtils.generateKeys();
-
-            // C. 生成 tinc.conf（服务端不主动连接任何人，包含自定义 Port）
-            String interfaceName = TincConfigUtils.resolveInterfaceName(netName);
-            TincConfigUtils.createTincConf(gatewayIp, netName, "server_master", "", network.getPort(), interfaceName);
-
-            // D. 生成启停脚本（绑定 .1 网关 IP）
-            TincConfigUtils.createTincUpAndDown(gatewayIp, netName, network.getSegment() + ".1");
-
-            // E. 生成 Host 文件（含公网 Address + Port + Subnet + 公钥）
-            String subnet = network.getSegment() + ".1/32";
-            TincConfigUtils.createHostFile(gatewayIp, netName, "server_master",
-                    subnet, gatewayIp, network.getPort(), keyMap.get("publicKey"));
-
-            // F. 生成私钥
-            TincConfigUtils.createPrivateKey(gatewayIp, netName, keyMap.get("privateKey"));
-
-            // G. 配置完成后由运行管理器处理防火墙、systemd、接口和双协议监听。
-            // 只有数据面全部就绪才提交 READY 状态。
-            tincRuntimeManager.ensureNetworkReady(netName);
+            initializeNetworkRuntime(network, selectedServer);
             network.setNetworkStatus("READY");
             tincNetworkMangeMapper.updateTincNetworkMange(network);
 
@@ -132,90 +104,66 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
         return rows;
     }
 
-    /**
-     * 修改 Tinc 网络（同步更新本地副本 + 远程网关）
-     */
+    /** 独立封装副作用，便于对稳定关系与校验逻辑做无文件系统单元测试。 */
+    protected void initializeNetworkRuntime(TincNetworkMange network, MangeServer selectedServer)
+    {
+        AccessNetworkSpec spec = new AccessNetworkSpec();
+        spec.setRuntimeName(network.getNetworkName());
+        spec.setPublicAddress(selectedServer.getServerIp());
+        spec.setPort(Integer.parseInt(network.getPort()));
+        spec.setSegment(network.getSegment());
+        AccessOperationResult result = tincRuntimeRouter.createNetwork(selectedServer, spec);
+        if (result == null || result.getNetworkStatus() == null || !result.getNetworkStatus().isReady()) {
+            throw new IllegalStateException("NETWORK_NOT_READY: Access Server 未达到 READY");
+        }
+    }
+
+    /** 修改非 Runtime 字段；运行名称、Server、端口和网段必须走独立迁移流程。 */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int updateTincNetworkMange(TincNetworkMange tincNetworkMange)
     {
         // 1. 查出修改前的老数据
-        TincNetworkMange oldNetwork = tincNetworkMangeMapper.selectTincNetworkMangeById(tincNetworkMange.getId());
+        tincNetworkMangeMapper.lockAllServerIdsForNetworkMutation();
+        TincNetworkMange oldNetwork = tincNetworkMangeMapper.selectTincNetworkMangeByIdForUpdate(tincNetworkMange.getId());
         if (oldNetwork == null) {
             throw new RuntimeException("修改的网络不存在！");
         }
 
+        if (tincNetworkMange.getNetworkName() != null
+                && !oldNetwork.getNetworkName().equals(tincNetworkMange.getNetworkName())) {
+            throw new IllegalStateException("TINC_NETWORK_RENAME_FORBIDDEN: 网络运行名称不能通过普通修改变更");
+        }
+        tincNetworkMange.setNetworkName(oldNetwork.getNetworkName());
+        if (tincNetworkMange.getServerId() == null) {
+            tincNetworkMange.setServerId(oldNetwork.getServerId());
+        }
+        MangeServer selectedServer = requireServer(tincNetworkMange.getServerId());
+        tincNetworkMange.setServerName(selectedServer.getServerName());
+        if (tincNetworkMange.getPort() == null || tincNetworkMange.getPort().isEmpty()) {
+            tincNetworkMange.setPort(oldNetwork.getPort());
+        }
+        if (tincNetworkMange.getSegment() == null || tincNetworkMange.getSegment().isEmpty()) {
+            tincNetworkMange.setSegment(oldNetwork.getSegment());
+        }
+        tincNetworkMange.setPort(TincModelValidator.requirePort(tincNetworkMange.getPort()));
+        tincNetworkMange.setSegment(TincModelValidator.requireSegment(tincNetworkMange.getSegment()));
+        if (oldNetwork.getServerId() != null && !oldNetwork.getServerId().equals(tincNetworkMange.getServerId())) {
+            throw new IllegalStateException("TINC_NETWORK_MOVE_FORBIDDEN: 网络不能通过普通修改迁移 Access Server");
+        }
+        if (!oldNetwork.getPort().equals(tincNetworkMange.getPort())
+                || !oldNetwork.getSegment().equals(tincNetworkMange.getSegment())) {
+            throw new IllegalStateException("TINC_NETWORK_RUNTIME_CHANGE_FORBIDDEN: 端口和网段需要独立迁移流程");
+        }
+        validateNetworkResources(tincNetworkMange, selectedServer);
+
         // 2. 执行数据库更新
         int rows = tincNetworkMangeMapper.updateTincNetworkMange(tincNetworkMange);
 
-        // 3. 同步更新本地 + 远程 Tinc 配置文件
-        try {
-            String netName = oldNetwork.getNetworkName();
-
-            // A. 读取本地已有的 server_master 主机文件，提取原公钥
-            String oldHostContent = TincConfigUtils.readHostFile(netName, "server_master");
-            if (oldHostContent == null || oldHostContent.isEmpty()) {
-                throw new RuntimeException("找不到服务器原配置文件，无法提取原有公钥！");
-            }
-
-            // B. 正则精准提取完整公钥 PEM 块
-            String publicKey = "";
-            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                    "(?s)-----BEGIN.*?-----END[^-]+-----");
-            java.util.regex.Matcher matcher = pattern.matcher(oldHostContent);
-            if (matcher.find()) {
-                publicKey = matcher.group(0);
-            } else {
-                throw new RuntimeException("原配置文件中没有找到标准的公钥 PEM 块，提取失败！");
-            }
-
-            // C. 获取最新的接入服务器公网 IP（网关 IP）
-            String currentServerName = tincNetworkMange.getServerName();
-            if (currentServerName == null || currentServerName.isEmpty()) {
-                currentServerName = oldNetwork.getServerName();
-            }
-
-            MangeServer query = new MangeServer();
-            query.setServerName(currentServerName);
-            List<MangeServer> serverList = mangeServerService.selectMangeServerList(query);
-            if (serverList == null || serverList.isEmpty()) {
-                throw new RuntimeException("系统里找不到名为 [" + currentServerName + "] 的服务器");
-            }
-            String gatewayIp = serverList.get(0).getServerIp();
-
-            // D. 计算新的中心服务器 Subnet 和 Port
-            String newSegment = tincNetworkMange.getSegment();
-            if (newSegment == null || newSegment.isEmpty()) {
-                newSegment = oldNetwork.getSegment();
-            }
-            String newSubnet = newSegment + ".1/32";
-
-            String newPort = tincNetworkMange.getPort();
-            if (newPort == null || newPort.isEmpty()) {
-                newPort = oldNetwork.getPort();
-            }
-
-            // E. 重新生成并推送 tinc.conf（以防端口变更）
-            TincConfigUtils.createTincConf(gatewayIp, netName, "server_master", "", newPort,
-                    TincConfigUtils.resolveInterfaceName(netName));
-
-            // F. 覆写 hosts/server_master（本地 + 远程，含 Address/Port/Subnet/PublicKey）
-            TincConfigUtils.createHostFile(gatewayIp, netName, "server_master",
-                    newSubnet, gatewayIp, newPort, publicKey);
-
-            // G. 重写网卡启停脚本（网段可能变了）
-            TincConfigUtils.createTincUpAndDown(gatewayIp, netName, newSegment + ".1");
-
-            // G. 推送完成后远程重载 tincd
-            tincRuntimeManager.reloadNetwork(netName);
-            tincRuntimeManager.ensureNetworkReady(netName);
-            tincNetworkMange.setNetworkStatus("READY");
-            tincNetworkMangeMapper.updateTincNetworkMange(tincNetworkMange);
-
-        } catch (Exception e) {
-            // 事务回滚
-            throw new RuntimeException("同步修改Tinc配置文件失败: " + e.getMessage());
-        }
+        TincNetworkStatus status = tincRuntimeRouter.inspectNetwork(selectedServer, oldNetwork.getNetworkName());
+        if (!status.isReady()) throw new IllegalStateException("NETWORK_NOT_READY: " + status.getFailureMessage());
+        tincNetworkMange.setNetworkStatus("READY");
+        tincNetworkMangeMapper.updateTincNetworkMange(tincNetworkMange);
 
         return rows;
     }
@@ -240,28 +188,25 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
     }
 
     /**
-     * 删除仅针对后台管理记录。运行中的网络或仍有节点的网络必须先完成迁移/停用；
-     * 此处绝不停止 tincd，也不删除 /etc/tinc 下的配置和私钥。
+     * 删除前要求无节点，并由对应 Runtime 安全停用服务；只删除管理记录，
+     * 绝不删除 /etc/tinc 下的配置、hosts 或私钥。
      */
     private void validateNetworkRecordDeletion(Long id) {
-        TincNetworkMange network = tincNetworkMangeMapper.selectTincNetworkMangeById(id);
+        TincNetworkMange network = tincNetworkMangeMapper.selectTincNetworkMangeByIdForUpdate(id);
         if (network == null) {
             return;
         }
 
-        TincNodeMange nodeQuery = new TincNodeMange();
-        nodeQuery.setNetworkName(network.getNetworkName());
-        List<TincNodeMange> nodes = tincNodeMangeMapper.selectTincNodeMangeList(nodeQuery);
-        if (nodes != null && !nodes.isEmpty()) {
+        if (tincNodeMangeMapper.countByNetworkId(id) > 0) {
             throw new IllegalStateException("TINC_NETWORK_IN_USE: 网络 [" + network.getNetworkName()
                     + "] 仍有关联节点，请先删除或迁移节点");
         }
 
-        TincNetworkStatus status = tincRuntimeManager.inspectNetworkStatus(network.getNetworkName());
-        if (status.isSystemdActive() || status.isMainPidPresent() || status.isInterfacePresent()
-                || status.isTcpListening() || status.isUdpListening()) {
-            throw new IllegalStateException("TINC_NETWORK_ACTIVE: 网络 [" + network.getNetworkName()
-                    + "] 仍在运行，禁止删除管理记录；请先通过独立维护流程停用网络");
+        MangeServer server = requireServer(network.getServerId());
+        AccessOperationResult decommissioned = tincRuntimeRouter.decommissionNetwork(server, network.getNetworkName());
+        if (decommissioned == null || decommissioned.getNetworkStatus() == null
+                || !"DECOMMISSIONED".equals(decommissioned.getNetworkStatus().getReadiness())) {
+            throw new IllegalStateException("TINC_NETWORK_ACTIVE: Access Server 未确认网络已安全停用");
         }
 
         log.warn("删除 Tinc 网络管理记录但保留物理配置: id={}, netName={}", id, network.getNetworkName());
@@ -296,5 +241,65 @@ public class TincNetworkMangeServiceImpl implements ITincNetworkMangeService
             }
         }
         return segments;
+    }
+
+    private MangeServer requireServer(Long serverId)
+    {
+        if (serverId == null) {
+            throw new IllegalArgumentException("请选择有效的接入服务器 ID");
+        }
+        MangeServer server = mangeServerService.selectMangeServerById(serverId);
+        if (server == null) {
+            throw new IllegalArgumentException("接入服务器不存在: id=" + serverId);
+        }
+        return server;
+    }
+
+    private void validateNetworkResources(TincNetworkMange network, MangeServer server)
+    {
+        if (tincNetworkMangeMapper.countNetworkNameExcludingId(
+                network.getServerId(), network.getNetworkName(), network.getId()) > 0) {
+            throw new IllegalStateException("TINC_NETWORK_NAME_CONFLICT: 网络名称已存在");
+        }
+        int port = Integer.parseInt(network.getPort());
+        if (server.getStartPort() != null && server.getEndPort() != null
+                && (port < server.getStartPort() || port > server.getEndPort())) {
+            throw new IllegalStateException("TINC_PORT_OUT_OF_RANGE: 端口超出所选 Access Server 的资源范围");
+        }
+        if (tincNetworkMangeMapper.countPortExcludingId(
+                network.getServerId(), network.getPort(), network.getId()) > 0) {
+            throw new IllegalStateException("TINC_PORT_CONFLICT: 同一 Access Server 内端口必须唯一");
+        }
+        validateSegmentRange(network.getSegment(), server);
+        List<TincNetworkMange> networks = tincNetworkMangeMapper.selectByServerIdForConflictCheck(network.getServerId());
+        if (networks != null) {
+            for (TincNetworkMange existing : networks) {
+                if (network.getId() != null && network.getId().equals(existing.getId())) {
+                    continue;
+                }
+                // 当前模型固定分配 /24；前三段相同即为相同或重叠。
+                if (network.getSegment().equals(existing.getSegment())) {
+                    throw new IllegalStateException("TINC_SEGMENT_CONFLICT: 同一 Access Server 内网段不能重复或重叠");
+                }
+            }
+        }
+    }
+
+    private void validateSegmentRange(String segment, MangeServer server)
+    {
+        if (server.getStartSegment() == null || server.getEndSegment() == null
+                || server.getStartSegment().isEmpty() || server.getEndSegment().isEmpty()) return;
+        long value = segmentValue(segment);
+        long start = segmentValue(TincModelValidator.requireSegment(server.getStartSegment()));
+        long end = segmentValue(TincModelValidator.requireSegment(server.getEndSegment()));
+        if (start > end || value < start || value > end) {
+            throw new IllegalStateException("TINC_SEGMENT_OUT_OF_RANGE: 网段超出所选 Access Server 的资源范围");
+        }
+    }
+
+    private long segmentValue(String segment)
+    {
+        String[] parts = segment.split("\\.");
+        return (Long.parseLong(parts[0]) << 16) | (Long.parseLong(parts[1]) << 8) | Long.parseLong(parts[2]);
     }
 }

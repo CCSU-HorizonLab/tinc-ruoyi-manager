@@ -2,6 +2,7 @@ package com.ruoyi.tinc_node.mapper;
 
 import java.util.List;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
+import org.apache.ibatis.annotations.Param;
 
 /**
  * Tinc节点集群管理Mapper接口
@@ -26,6 +27,20 @@ public interface TincNodeMangeMapper
      * @return Tinc节点集群管理集合
      */
     public List<TincNodeMange> selectTincNodeMangeList(TincNodeMange tincNodeMange);
+
+    public List<TincNodeMange> selectByNodeNameExact(@Param("nodeName") String nodeName);
+
+    public List<TincNodeMange> selectByNetworkId(@Param("networkId") Long networkId);
+
+    public int countByNetworkId(@Param("networkId") Long networkId);
+
+    public int countNodeNameInNetwork(@Param("networkId") Long networkId,
+                                      @Param("nodeName") String nodeName,
+                                      @Param("excludeId") Long excludeId);
+
+    public int countNetworkIpInNetwork(@Param("networkId") Long networkId,
+                                       @Param("networkIp") String networkIp,
+                                       @Param("excludeId") Long excludeId);
 
     /**
      * 新增Tinc节点集群管理

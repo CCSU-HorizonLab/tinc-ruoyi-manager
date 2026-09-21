@@ -2,6 +2,7 @@ package com.ruoyi.tinc_server.mapper;
 
 import java.util.List;
 import com.ruoyi.tinc_server.domain.MangeServer;
+import org.apache.ibatis.annotations.Param;
 
 /**
  * 服务器集群管理Mapper接口
@@ -19,6 +20,8 @@ public interface MangeServerMapper
      */
     public MangeServer selectMangeServerById(Long Id);
 
+    public MangeServer selectMangeServerByIdForUpdate(@Param("id") Long id);
+
     /**
      * 查询服务器集群管理列表
      * 
@@ -26,6 +29,8 @@ public interface MangeServerMapper
      * @return 服务器集群管理集合
      */
     public List<MangeServer> selectMangeServerList(MangeServer mangeServer);
+
+    public List<MangeServer> selectByServerNameExact(@Param("serverName") String serverName);
 
     /**
      * 新增服务器集群管理
@@ -42,6 +47,8 @@ public interface MangeServerMapper
      * @return 结果
      */
     public int updateMangeServer(MangeServer mangeServer);
+
+    public int updateAgentHealth(MangeServer mangeServer);
 
     /**
      * 删除服务器集群管理

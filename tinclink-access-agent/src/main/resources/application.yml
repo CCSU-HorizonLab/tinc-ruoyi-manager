@@ -1,0 +1,32 @@
+server:
+  port: ${AGENT_PORT:9088}
+  address: ${AGENT_BIND_ADDRESS:0.0.0.0}
+  tomcat:
+    max-http-form-post-size: 32KB
+
+spring:
+  application:
+    name: tinclink-access-agent
+  main:
+    banner-mode: "off"
+
+agent:
+  id: ${AGENT_ID:}
+  secret: ${AGENT_SECRET:}
+  version: 2.0.0
+
+tinc:
+  transport:
+    mode: local
+  runtime:
+    config-root: ${TINC_CONFIG_ROOT:/etc/tinc}
+    file-owner: root
+    file-group: root
+    command-timeout-ms: 10000
+    ready-timeout-ms: 60000
+    use-helper: false
+
+logging:
+  level:
+    com.ruoyi.accessagent: INFO
+    com.ruoyi.common.tinc: INFO

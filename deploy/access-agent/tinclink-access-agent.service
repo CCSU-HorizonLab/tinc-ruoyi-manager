@@ -1,0 +1,25 @@
+[Unit]
+Description=TincLink Access Agent
+After=network-online.target firewalld.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/tinclink/access-agent.env
+Environment="JAVA_OPTS=-Xms32m -Xmx96m -XX:MaxMetaspaceSize=64m -XX:MaxDirectMemorySize=32m -XX:ReservedCodeCacheSize=32m -Xss512k -XX:+UseSerialGC -XX:ActiveProcessorCount=1"
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/tinclink/tinclink-access-agent.jar --spring.config.additional-location=file:/etc/tinclink/access-agent.yml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/etc/tinc /run /var/run
+UMask=0077
+TasksMax=128
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

@@ -6,6 +6,8 @@ import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import com.ruoyi.common.annotation.Excel;
 import com.ruoyi.common.core.domain.BaseEntity;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.Date;
 
 /**
  * 服务器集群管理对象 mange_server
@@ -64,7 +66,21 @@ public class MangeServer extends BaseEntity
     private String sshKeyPath;
 
     /** SSH 密码（未配置私钥时使用） */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String sshPassword;
+
+    /** LOCAL keeps the existing co-located deployment; AGENT uses the authenticated HTTP control plane. */
+    private String runtimeType;
+    private Integer agentPort;
+    private String agentStatus;
+    private String agentVersion;
+    private Date agentLastSeen;
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    private String agentSecret;
+    private String agentId;
+    private Double agentCpuUsage;
+    private Double agentMemoryUsage;
+    private Integer agentNetworkCount;
 
     public void setId(Long id)
     {
@@ -196,6 +212,27 @@ public class MangeServer extends BaseEntity
         return sshPassword;
     }
 
+    public String getRuntimeType() { return runtimeType; }
+    public void setRuntimeType(String runtimeType) { this.runtimeType = runtimeType; }
+    public Integer getAgentPort() { return agentPort; }
+    public void setAgentPort(Integer agentPort) { this.agentPort = agentPort; }
+    public String getAgentStatus() { return agentStatus; }
+    public void setAgentStatus(String agentStatus) { this.agentStatus = agentStatus; }
+    public String getAgentVersion() { return agentVersion; }
+    public void setAgentVersion(String agentVersion) { this.agentVersion = agentVersion; }
+    public Date getAgentLastSeen() { return agentLastSeen; }
+    public void setAgentLastSeen(Date agentLastSeen) { this.agentLastSeen = agentLastSeen; }
+    public String getAgentSecret() { return agentSecret; }
+    public void setAgentSecret(String agentSecret) { this.agentSecret = agentSecret; }
+    public String getAgentId() { return agentId; }
+    public void setAgentId(String agentId) { this.agentId = agentId; }
+    public Double getAgentCpuUsage() { return agentCpuUsage; }
+    public void setAgentCpuUsage(Double agentCpuUsage) { this.agentCpuUsage = agentCpuUsage; }
+    public Double getAgentMemoryUsage() { return agentMemoryUsage; }
+    public void setAgentMemoryUsage(Double agentMemoryUsage) { this.agentMemoryUsage = agentMemoryUsage; }
+    public Integer getAgentNetworkCount() { return agentNetworkCount; }
+    public void setAgentNetworkCount(Integer agentNetworkCount) { this.agentNetworkCount = agentNetworkCount; }
+
     @Override
     public String toString() {
         return new ToStringBuilder(this,ToStringStyle.MULTI_LINE_STYLE)
@@ -217,6 +254,16 @@ public class MangeServer extends BaseEntity
             .append("sshUser", getSshUser())
             .append("sshKeyPath", getSshKeyPath())
             .append("sshPassword", getSshPassword() != null ? "***" : null)
+            .append("runtimeType", getRuntimeType())
+            .append("agentPort", getAgentPort())
+            .append("agentStatus", getAgentStatus())
+            .append("agentVersion", getAgentVersion())
+            .append("agentLastSeen", getAgentLastSeen())
+            .append("agentSecret", getAgentSecret() != null ? "***" : null)
+            .append("agentId", getAgentId())
+            .append("agentCpuUsage", getAgentCpuUsage())
+            .append("agentMemoryUsage", getAgentMemoryUsage())
+            .append("agentNetworkCount", getAgentNetworkCount())
             .toString();
     }
 }

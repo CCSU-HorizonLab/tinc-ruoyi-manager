@@ -27,6 +27,9 @@ public interface ITincNodeMangeService
      */
     public List<TincNodeMange> selectTincNodeMangeList(TincNodeMange tincNodeMange);
 
+    /** 客户端登录兼容入口：数据库精确匹配节点名，允许跨网络同名。 */
+    public List<TincNodeMange> selectByNodeNameExact(String nodeName);
+
     /**
      * 新增Tinc节点集群管理
      * 

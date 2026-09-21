@@ -6,6 +6,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     
     <resultMap type="TincNodeMange" id="TincNodeMangeResult">
         <result property="id"    column="id"    />
+        <result property="networkId"    column="network_id"    />
         <result property="userName"    column="user_name"    />
         <result property="tableId"    column="device_id"    />
         <result property="serverName"    column="server_name"    />
@@ -23,7 +24,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </resultMap>
 
     <sql id="selectTincNodeMangeVo">
-        select id, user_name, device_id, server_name, network_name, password, node_name, network_ip, remark, create_time, node_status, status, create_by, update_by, update_time from tinc_node
+        select id, network_id, user_name, device_id, server_name, network_name, password, node_name, network_ip, remark, create_time, node_status, status, create_by, update_by, update_time from tinc_node
     </sql>
 
     <select id="selectTincNodeMangeList" parameterType="TincNodeMange" resultMap="TincNodeMangeResult">
@@ -31,6 +32,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <where>  
             <if test="userName != null  and userName != ''"> and user_name like concat('%', #{userName}, '%')</if>
             <if test="tableId != null  and tableId != ''"> and device_id = #{tableId}</if>
+            <if test="networkId != null"> and network_id = #{networkId}</if>
             <if test="serverName != null  and serverName != ''"> and server_name like concat('%', #{serverName}, '%')</if>
             <if test="networkName != null  and networkName != ''"> and network_name like concat('%', #{networkName}, '%')</if>
             <if test="nodeName != null  and nodeName != ''"> and node_name like concat('%', #{nodeName}, '%')</if>
@@ -38,6 +40,30 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="nodeStatus != null  and nodeStatus != ''"> and node_status = #{nodeStatus}</if>
             <if test="status != null  and status != ''"> and status = #{status}</if>
         </where>
+    </select>
+
+    <select id="selectByNodeNameExact" parameterType="String" resultMap="TincNodeMangeResult">
+        <include refid="selectTincNodeMangeVo"/>
+        where node_name = #{nodeName}
+    </select>
+
+    <select id="selectByNetworkId" parameterType="Long" resultMap="TincNodeMangeResult">
+        <include refid="selectTincNodeMangeVo"/>
+        where network_id = #{networkId}
+    </select>
+
+    <select id="countByNetworkId" parameterType="Long" resultType="int">
+        select count(1) from tinc_node where network_id = #{networkId}
+    </select>
+
+    <select id="countNodeNameInNetwork" resultType="int">
+        select count(1) from tinc_node where network_id = #{networkId} and node_name = #{nodeName}
+        <if test="excludeId != null">and id != #{excludeId}</if>
+    </select>
+
+    <select id="countNetworkIpInNetwork" resultType="int">
+        select count(1) from tinc_node where network_id = #{networkId} and network_ip = #{networkIp}
+        <if test="excludeId != null">and id != #{excludeId}</if>
     </select>
     
     <select id="selectTincNodeMangeById" parameterType="Long" resultMap="TincNodeMangeResult">
@@ -49,6 +75,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         insert into tinc_node
         <trim prefix="(" suffix=")" suffixOverrides=",">
             <if test="userName != null and userName != ''">user_name,</if>
+            <if test="networkId != null">network_id,</if>
             <if test="tableId != null and tableId != ''">device_id,</if>
             <if test="serverName != null and serverName != ''">server_name,</if>
             <if test="networkName != null and networkName != ''">network_name,</if>
@@ -63,6 +90,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
          </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="userName != null and userName != ''">#{userName},</if>
+            <if test="networkId != null">#{networkId},</if>
             <if test="tableId != null and tableId != ''">#{tableId},</if>
             <if test="serverName != null and serverName != ''">#{serverName},</if>
             <if test="networkName != null and networkName != ''">#{networkName},</if>
@@ -81,6 +109,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         update tinc_node
         <trim prefix="SET" suffixOverrides=",">
             <if test="userName != null and userName != ''">user_name = #{userName},</if>
+            <if test="networkId != null">network_id = #{networkId},</if>
             <if test="tableId != null and tableId != ''">device_id = #{tableId},</if>
             <if test="serverName != null and serverName != ''">server_name = #{serverName},</if>
             <if test="networkName != null and networkName != ''">network_name = #{networkName},</if>

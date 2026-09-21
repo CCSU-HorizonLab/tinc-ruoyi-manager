@@ -20,8 +20,10 @@ import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
-import com.ruoyi.common.tinc.runtime.TincRuntimeManager;
 import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
+import com.ruoyi.tinc.runtime.TincRuntimeRouter;
+import com.ruoyi.tinc_server.domain.MangeServer;
+import com.ruoyi.tinc_server.service.IMangeServerService;
 
 /**
  * Tinc内网集群管理Controller
@@ -37,7 +39,10 @@ public class TincNetworkMangeController extends BaseController
     private ITincNetworkMangeService tincNetworkMangeService;
 
     @Autowired
-    private TincRuntimeManager tincRuntimeManager;
+    private TincRuntimeRouter tincRuntimeRouter;
+
+    @Autowired
+    private IMangeServerService mangeServerService;
 
     /**
      * 查询Tinc内网集群管理列表
@@ -127,10 +132,14 @@ public class TincNetworkMangeController extends BaseController
 
     /** Read-only runtime health; key material and sensitive paths are never returned. */
     @PreAuthorize("@ss.hasPermi('TincNetworkMange:TincNetworkMange:query')")
-    @GetMapping("/runtime/{netName}")
-    public AjaxResult runtime(@PathVariable String netName)
+    @GetMapping("/runtime/{networkId}")
+    public AjaxResult runtime(@PathVariable Long networkId)
     {
-        TincNetworkStatus status = tincRuntimeManager.inspectNetworkStatus(netName);
+        TincNetworkMange network = tincNetworkMangeService.selectTincNetworkMangeById(networkId);
+        if (network == null || network.getServerId() == null) return error("网络或 server_id 不存在");
+        MangeServer server = mangeServerService.selectMangeServerById(network.getServerId());
+        if (server == null) return error("Access Server 不存在");
+        TincNetworkStatus status = tincRuntimeRouter.inspectNetwork(server, network.getNetworkName());
         return success(status);
     }
 }

@@ -1,0 +1,12 @@
+[Exec]
+Boot=yes
+Hostname=access-a
+PrivateUsers=no
+Capability=CAP_NET_ADMIN CAP_NET_RAW
+
+[Files]
+Bind=/dev/net/tun
+
+[Network]
+VirtualEthernet=yes
+Bridge=br-access

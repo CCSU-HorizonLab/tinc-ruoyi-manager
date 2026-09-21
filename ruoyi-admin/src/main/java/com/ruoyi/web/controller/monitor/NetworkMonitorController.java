@@ -155,7 +155,7 @@ public class NetworkMonitorController extends BaseController
 
         // Node Rate details
         TincNodeMange queryNode = new TincNodeMange();
-        queryNode.setNetworkName(network.getNetworkName());
+        queryNode.setNetworkId(network.getId());
         List<TincNodeMange> nodeList = tincNodeMangeService.selectTincNodeMangeList(queryNode);
         int totalNodes = nodeList.size();
         int onlineNodes = 0;

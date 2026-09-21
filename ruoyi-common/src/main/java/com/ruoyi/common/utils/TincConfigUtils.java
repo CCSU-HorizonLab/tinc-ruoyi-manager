@@ -36,7 +36,7 @@ public class TincConfigUtils {
     private static TincRuntimeManager runtimeManager;
 
     /** 本地基路径：Linux /etc/tinc，Windows D:/tinc（用于本地副本写入和客户端下载读取） */
-    private static final String LOCAL_BASE_PATH = System.getProperty("os.name").toLowerCase().startsWith("win")
+    private static volatile String localBasePath = System.getProperty("os.name").toLowerCase().startsWith("win")
             ? "D:/tinc"
             : "/etc/tinc";
 
@@ -67,7 +67,14 @@ public class TincConfigUtils {
     }
 
     public static String getBasePath() {
-        return LOCAL_BASE_PATH;
+        return localBasePath;
+    }
+
+    public static void setBasePath(String basePath) {
+        if (basePath == null || basePath.trim().isEmpty()) {
+            throw new IllegalArgumentException("Tinc 配置根目录不能为空");
+        }
+        localBasePath = new File(basePath).toPath().toAbsolutePath().normalize().toString();
     }
 
     // ==================== 本地写入（保留副本，用于调试 + 客户端下载） ====================
@@ -76,7 +83,7 @@ public class TincConfigUtils {
      * 底层写入工具：写入 Java 进程所在机器的本地磁盘
      */
     private static void writeToFile(String netName, String fileName, String content, boolean isScript) {
-        String fullPath = LOCAL_BASE_PATH + "/" + netName + "/" + fileName;
+        String fullPath = localBasePath + "/" + netName + "/" + fileName;
         File file = new File(fullPath);
 
         try {
@@ -203,12 +210,14 @@ public class TincConfigUtils {
      */
     public static void createTincUpAndDown(String gatewayIp, String netName, String virtualIp) {
         // Linux 启动脚本
-        String linuxUp = "#!/bin/sh\nifconfig $INTERFACE " + virtualIp + " netmask 255.255.255.0\n";
+        String linuxUp = "#!/bin/sh\n"
+                + "/usr/sbin/ip address replace " + virtualIp + "/24 dev \"$INTERFACE\"\n"
+                + "/usr/sbin/ip link set dev \"$INTERFACE\" up\n";
         writeToFile(netName, "tinc-up", linuxUp, true);
         pushToGateway(gatewayIp, netName, "tinc-up", linuxUp, true);
 
         // Linux 停止脚本
-        String linuxDown = "#!/bin/sh\nifconfig $INTERFACE down\n";
+        String linuxDown = "#!/bin/sh\n/usr/sbin/ip link set dev \"$INTERFACE\" down\n";
         writeToFile(netName, "tinc-down", linuxDown, true);
         pushToGateway(gatewayIp, netName, "tinc-down", linuxDown, true);
 
@@ -248,6 +257,8 @@ public class TincConfigUtils {
      */
     public static void createHostFile(String gatewayIp, String netName, String nodeName,
                                        String subnet, String publicIp, String port, String publicKey) {
+        requireTincIdentifier(netName, "网络名称");
+        requireTincIdentifier(nodeName, "节点名称");
         String content = buildHostFileContent(subnet, publicIp, port, publicKey);
         // 远程原子替换成功后才更新后台本地副本，SSH 失败时保留旧公钥供重试与下载。
         pushToGateway(gatewayIp, netName, "hosts/" + nodeName, content, false);
@@ -327,13 +338,68 @@ public class TincConfigUtils {
         }
     }
 
+    /**
+     * 撤销节点运行授权：删除 hosts 文件、HUP、确认文件已消失且网络仍 READY。
+     * 失败时尽力恢复原文件；调用方只有在本方法成功后才可删除数据库记录。
+     */
+    public static void revokeClientHost(String gatewayIp, String netName, String nodeName) {
+        requireTincIdentifier(netName, "网络名称");
+        requireTincIdentifier(nodeName, "节点名称");
+        if ("server_master".equals(nodeName)) {
+            throw new IllegalArgumentException("不能撤销系统网关节点");
+        }
+        if (transport == null || runtimeManager == null) {
+            throw new IllegalStateException("Tinc 网关传输或运行管理器未配置");
+        }
+
+        Object lock = CLIENT_KEY_APPLY_LOCKS[Math.floorMod(netName.hashCode(),
+                CLIENT_KEY_APPLY_LOCKS.length)];
+        synchronized (lock) {
+            String remotePath = REMOTE_BASE_PATH + "/" + netName + "/hosts/" + nodeName;
+            String previous = transport.readFile(gatewayIp, remotePath);
+            if (previous == null) {
+                runtimeManager.ensureNetworkReady(netName);
+                deleteClientApplyReceipt(netName, nodeName);
+                return;
+            }
+            try {
+                transport.deleteNode(gatewayIp, netName, nodeName);
+                if (transport.readFile(gatewayIp, remotePath) != null) {
+                    throw new IllegalStateException("节点 hosts 文件撤销验证失败");
+                }
+                runtimeManager.reloadNetwork(netName);
+                runtimeManager.ensureNetworkReady(netName);
+                deleteClientApplyReceipt(netName, nodeName);
+            } catch (RuntimeException revokeFailure) {
+                try {
+                    transport.pushFile(gatewayIp, remotePath, previous, false);
+                    runtimeManager.reloadNetwork(netName);
+                } catch (Exception restoreFailure) {
+                    log.error("节点撤销回滚失败: net={}, sid={}, errorType={}", netName, nodeName,
+                            restoreFailure.getClass().getSimpleName());
+                    revokeFailure.addSuppressed(restoreFailure);
+                }
+                throw revokeFailure;
+            }
+        }
+    }
+
+    private static void deleteClientApplyReceipt(String netName, String nodeName) {
+        try {
+            Files.deleteIfExists(new File(localBasePath + "/" + netName
+                    + "/.client-key-state/" + nodeName + ".sha256").toPath());
+        } catch (IOException e) {
+            throw new RuntimeException("节点应用回执清理失败", e);
+        }
+    }
+
     private static boolean hasMatchingClientApplyReceipt(String netName, String nodeName, String expectedContent) {
         String existingContent = readHostFile(netName, nodeName);
         if (!normalizeConfig(expectedContent).equals(normalizeConfig(existingContent))) {
             return false;
         }
 
-        File receipt = new File(LOCAL_BASE_PATH + "/" + netName
+        File receipt = new File(localBasePath + "/" + netName
                 + "/.client-key-state/" + nodeName + ".sha256");
         if (!receipt.isFile()) {
             return false;
@@ -384,7 +450,7 @@ public class TincConfigUtils {
     /** Existing networks keep their persisted interface; new networks get a stable unique candidate. */
     public static String resolveInterfaceName(String netName) {
         requireTincIdentifier(netName, "网络名称");
-        File conf = new File(LOCAL_BASE_PATH + "/" + netName + "/tinc.conf");
+        File conf = new File(localBasePath + "/" + netName + "/tinc.conf");
         if (conf.isFile()) {
             try {
                 for (String line : Files.readAllLines(conf.toPath(), StandardCharsets.UTF_8)) {
@@ -418,7 +484,7 @@ public class TincConfigUtils {
      * <p>注意：这里始终读本地副本（不通过 SSH 远程读），因为客户端下载接口需要本地即可获取</p>
      */
     public static String readHostFile(String netName, String nodeName) {
-        String fullPath = LOCAL_BASE_PATH + "/" + netName + "/hosts/" + nodeName;
+        String fullPath = localBasePath + "/" + netName + "/hosts/" + nodeName;
         File file = new File(fullPath);
         if (!file.exists()) return null;
         try {
@@ -435,7 +501,7 @@ public class TincConfigUtils {
      * @param netName   网络名称
      */
     public static void initNetworkEnv(String gatewayIp, String netName) {
-        String fullPath = LOCAL_BASE_PATH + "/" + netName;
+        String fullPath = localBasePath + "/" + netName;
         new File(fullPath).mkdirs();
         new File(fullPath + "/hosts").mkdirs();
 
@@ -453,7 +519,7 @@ public class TincConfigUtils {
      */
     public static void deleteNetwork(String gatewayIp, String netName) {
         // 1. 删除本地备份配置文件夹
-        String localDir = LOCAL_BASE_PATH + "/" + netName;
+        String localDir = localBasePath + "/" + netName;
         File dir = new File(localDir);
         if (dir.exists()) {
             deleteLocalDir(dir);
@@ -474,8 +540,10 @@ public class TincConfigUtils {
      * @param nodeName  节点名称
      */
     public static void deleteNode(String gatewayIp, String netName, String nodeName) {
+        requireTincIdentifier(netName, "网络名称");
+        requireTincIdentifier(nodeName, "节点名称");
         // 1. 删除本地备份节点配置文件
-        String localFile = LOCAL_BASE_PATH + "/" + netName + "/hosts/" + nodeName;
+        String localFile = localBasePath + "/" + netName + "/hosts/" + nodeName;
         File file = new File(localFile);
         if (file.exists()) {
             file.delete();

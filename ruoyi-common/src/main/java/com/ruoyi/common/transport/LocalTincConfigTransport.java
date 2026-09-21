@@ -22,6 +22,7 @@ import java.util.EnumSet;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 /**
  * 本地文件传输实现（向后兼容单机部署场景）
@@ -36,6 +37,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class LocalTincConfigTransport implements TincConfigTransport {
 
     private static final Logger log = LoggerFactory.getLogger(LocalTincConfigTransport.class);
+    private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z0-9_]{1,64}");
 
     private final String basePath;
     private final Path configuredRoot;
@@ -169,6 +171,7 @@ public class LocalTincConfigTransport implements TincConfigTransport {
 
     @Override
     public void deleteNetwork(String targetHost, String netName) {
+        requireIdentifier(netName);
         log.info("本地模式: 开始物理清理网络目录 {}/{}", basePath, netName);
         File dir = new File(basePath + "/" + netName);
         deleteDir(dir);
@@ -190,10 +193,19 @@ public class LocalTincConfigTransport implements TincConfigTransport {
 
     @Override
     public void deleteNode(String targetHost, String netName, String nodeName) {
-        log.info("本地模式: 开始删除节点配置 {}/{}/hosts/{}", basePath, netName, nodeName);
-        File file = new File(basePath + "/" + netName + "/hosts/" + nodeName);
-        if (file.exists()) {
-            file.delete();
+        requireIdentifier(netName);
+        requireIdentifier(nodeName);
+        log.info("本地模式: 开始删除节点配置，net={}, sid={}", netName, nodeName);
+        Path target = safePath(basePath + "/" + netName + "/hosts/" + nodeName);
+        ReentrantLock fileLock = fileLocks.computeIfAbsent(target, ignored -> new ReentrantLock());
+        fileLock.lock();
+        try {
+            Files.deleteIfExists(target);
+            forceDirectory(target.getParent());
+        } catch (IOException e) {
+            throw new RuntimeException("删除 Tinc 节点配置失败", e);
+        } finally {
+            fileLock.unlock();
         }
     }
 
@@ -258,6 +270,12 @@ public class LocalTincConfigTransport implements TincConfigTransport {
             GroupPrincipal group = path.getFileSystem().getUserPrincipalLookupService()
                     .lookupPrincipalByGroupName(fileGroup.trim());
             Files.getFileAttributeView(path, PosixFileAttributeView.class).setGroup(group);
+        }
+    }
+
+    private static void requireIdentifier(String value) {
+        if (value == null || !IDENTIFIER.matcher(value).matches()) {
+            throw new IllegalArgumentException("Tinc identifier is invalid");
         }
     }
 }

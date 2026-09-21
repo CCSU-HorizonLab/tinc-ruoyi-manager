@@ -206,6 +206,7 @@
         <module>ruoyi-framework</module>
         <module>ruoyi-system</module>
         <module>ruoyi-common</module>
+        <module>tinclink-access-agent</module>
     </modules>
     <packaging>pom</packaging>
 

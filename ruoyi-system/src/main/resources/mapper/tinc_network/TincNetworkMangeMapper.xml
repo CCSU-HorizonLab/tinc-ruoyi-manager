@@ -6,6 +6,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     
     <resultMap type="TincNetworkMange" id="TincNetworkMangeResult">
         <result property="id"    column="id"    />
+        <result property="serverId"    column="server_id"    />
         <result property="rootName"    column="create_by"    />
         <result property="serverName"    column="server_name"    />
         <result property="networkName"    column="network_name"    />
@@ -20,13 +21,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </resultMap>
 
     <sql id="selectTincNetworkMangeVo">
-        select id, create_by, server_name, network_name, create_time, port, segment, nodes, network_status, remark, update_by, update_time from tinc_network
+        select id, server_id, create_by, server_name, network_name, create_time, port, segment, nodes, network_status, remark, update_by, update_time from tinc_network
     </sql>
 
     <select id="selectTincNetworkMangeList" parameterType="TincNetworkMange" resultMap="TincNetworkMangeResult">
         <include refid="selectTincNetworkMangeVo"/>
         <where>  
             <if test="rootName != null  and rootName != ''"> and create_by like concat('%', #{rootName}, '%')</if>
+            <if test="serverId != null"> and server_id = #{serverId}</if>
             <if test="serverName != null  and serverName != ''"> and server_name like concat('%', #{serverName}, '%')</if>
             <if test="networkName != null  and networkName != ''"> and network_name like concat('%', #{networkName}, '%')</if>
             <if test="segment != null  and segment != ''"> and segment = #{segment}</if>
@@ -34,16 +36,51 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="networkStatus != null  and networkStatus != ''"> and network_status = #{networkStatus}</if>
         </where>
     </select>
+
+    <select id="selectByNetworkNameExact" parameterType="String" resultMap="TincNetworkMangeResult">
+        <include refid="selectTincNetworkMangeVo"/>
+        where network_name = #{networkName}
+    </select>
+
+    <select id="countByServerId" parameterType="Long" resultType="int">
+        select count(1) from tinc_network where server_id = #{serverId}
+    </select>
+
+    <select id="countNetworkNameExcludingId" resultType="int">
+        select count(1) from tinc_network where server_id = #{serverId} and network_name = #{networkName}
+        <if test="excludeId != null">and id != #{excludeId}</if>
+    </select>
+
+    <select id="countPortExcludingId" resultType="int">
+        select count(1) from tinc_network where server_id = #{serverId} and port = #{port}
+        <if test="excludeId != null">and id != #{excludeId}</if>
+    </select>
+
+    <select id="selectByServerIdForConflictCheck" resultMap="TincNetworkMangeResult">
+        <include refid="selectTincNetworkMangeVo"/>
+        where server_id = #{serverId}
+    </select>
     
     <select id="selectTincNetworkMangeById" parameterType="Long" resultMap="TincNetworkMangeResult">
         <include refid="selectTincNetworkMangeVo"/>
         where id = #{id}
     </select>
 
+    <select id="selectTincNetworkMangeByIdForUpdate" parameterType="Long" resultMap="TincNetworkMangeResult">
+        <include refid="selectTincNetworkMangeVo"/>
+        where id = #{id}
+        for update
+    </select>
+
+    <select id="lockAllServerIdsForNetworkMutation" resultType="long">
+        select Id from tinc_server order by Id for update
+    </select>
+
     <insert id="insertTincNetworkMange" parameterType="TincNetworkMange" useGeneratedKeys="true" keyProperty="id">
         insert into tinc_network
         <trim prefix="(" suffix=")" suffixOverrides=",">
             <if test="rootName != null and rootName != ''">create_by,</if>
+            <if test="serverId != null">server_id,</if>
             <if test="serverName != null and serverName != ''">server_name,</if>
             <if test="networkName != null and networkName != ''">network_name,</if>
             <if test="createTime != null">create_time,</if>
@@ -55,6 +92,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
          </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="rootName != null and rootName != ''">#{rootName},</if>
+            <if test="serverId != null">#{serverId},</if>
             <if test="serverName != null and serverName != ''">#{serverName},</if>
             <if test="networkName != null and networkName != ''">#{networkName},</if>
             <if test="createTime != null">#{createTime},</if>
@@ -70,6 +108,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         update tinc_network
         <trim prefix="SET" suffixOverrides=",">
             <if test="rootName != null and rootName != ''">create_by = #{rootName},</if>
+            <if test="serverId != null">server_id = #{serverId},</if>
             <if test="serverName != null and serverName != ''">server_name = #{serverName},</if>
             <if test="networkName != null and networkName != ''">network_name = #{networkName},</if>
             <if test="createTime != null">create_time = #{createTime},</if>

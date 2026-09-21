@@ -144,14 +144,21 @@ tinc:
   transport:
     # 传输模式：local（本地 · 单机部署） / ssh（远程推送 · 分离部署）
     mode: local
-    # SSH 模式通用配置（当 mode=ssh 时生效，也可被 mange_server 表逐台覆盖）
+    # SSH 历史配置仅保留兼容；当前启动配置会明确拒绝 ssh 模式。
     ssh:
       default-port: 22
       default-user: root
-      # mwiede JSch 0.2.20 已支持 OpenSSH ed25519 格式私钥，直接使用现有密钥
       default-key-path:
       default-password:
-      connect-timeout: 10000                     # SSH 连接超时 (ms)
+      connect-timeout: 10000
+
+tinclink:
+  agent:
+    connect-timeout-ms: 3000
+    read-timeout-ms: 60000
+    health:
+      enabled: true
+      interval-ms: 20000
 
 # 防止XSS攻击
 xss:

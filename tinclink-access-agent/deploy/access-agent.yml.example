@@ -1,0 +1,19 @@
+server:
+  port: ${AGENT_PORT:9088}
+  address: 0.0.0.0
+
+agent:
+  id: ${AGENT_ID:}
+  # Production should inject AGENT_SECRET from /etc/tinclink/access-agent.env.
+  secret: ${AGENT_SECRET}
+  version: 2.0.0
+
+tinc:
+  transport:
+    mode: local
+  runtime:
+    config-root: /etc/tinc
+    file-owner: root
+    file-group: root
+    command-timeout-ms: 10000
+    ready-timeout-ms: 60000

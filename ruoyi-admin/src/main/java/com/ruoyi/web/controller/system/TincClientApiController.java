@@ -6,9 +6,10 @@ import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.utils.StringUtils;
-import com.ruoyi.common.utils.TincConfigUtils;
+import com.ruoyi.common.tinc.access.AccessPeerSpec;
 import com.ruoyi.common.tinc.runtime.TincRuntimeException;
-import com.ruoyi.common.tinc.runtime.TincRuntimeManager;
+import com.ruoyi.tinc.runtime.TincRuntimeRouter;
+import com.ruoyi.tinc.runtime.AccessAgentException;
 import com.ruoyi.tinc_server.domain.MangeServer;
 import com.ruoyi.tinc_server.service.IMangeServerService;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
@@ -56,6 +57,8 @@ public class TincClientApiController {
     private static final Pattern WINDOWS_RESERVED_NAME = Pattern.compile(
             "(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])");
     private static final String CLIENT_TOKEN_PREFIX = "tinc:client:token:";
+    private static final String CLIENT_NODE_TOKEN_PREFIX = "tinc:client:node-tokens:";
+    private static final String CLIENT_REVOKED_TOKEN_PREFIX = "tinc:client:revoked-token:";
     private static final int CLIENT_TOKEN_EXPIRATION_MINUTES = 30;
     private static final int MAX_KEY_UPLOAD_BODY_BYTES = 64 * 1024;
     private static final SecureRandom CLIENT_TOKEN_RANDOM = new SecureRandom();
@@ -73,7 +76,7 @@ public class TincClientApiController {
     private RedisCache redisCache;
 
     @Autowired
-    private TincRuntimeManager tincRuntimeManager;
+    private TincRuntimeRouter tincRuntimeRouter;
 
     /**
      * 客户端登录验证，获取内网分配的虚拟 IP 和网络名称
@@ -114,7 +117,7 @@ public class TincClientApiController {
                 return result;
             }
 
-            TincNetworkMange network = findExactNetwork(node.getNetworkName());
+            TincNetworkMange network = resolveNetworkForNode(node);
             if (network == null || !isValidTincIdentifier(network.getNetworkName())) {
                 log.warn("网络不存在: {}", node.getNetworkName());
                 result.put("status", 0);
@@ -127,6 +130,8 @@ public class TincClientApiController {
             result.put("status", 1);
             result.put("token", clientToken);
             result.put("net_name", network.getNetworkName());
+            result.put("network_id", network.getId());
+            result.put("node_id", node.getId());
             result.put("msg", "登录成功");
             result.put("node_ip", node.getNetworkIp());
 
@@ -158,6 +163,10 @@ public class TincClientApiController {
                 writeClientApiError(response, HttpStatus.BAD_REQUEST, "CLIENT_SID_INVALID", "节点名称无效");
                 return;
             }
+            if (isRevokedClientToken(token)) {
+                writeClientApiError(response, HttpStatus.GONE, "CLIENT_NODE_REVOKED", "节点已被撤销");
+                return;
+            }
             List<TincNodeMange> exactNodes = findExactNodes(nodeName);
             if (exactNodes.isEmpty()) {
                 log.error("节点不存在: {}", nodeName);
@@ -178,17 +187,26 @@ public class TincClientApiController {
                 return;
             }
 
-            TincNetworkMange network = findExactNetwork(node.getNetworkName());
+            TincNetworkMange network = resolveNetworkForNode(node);
             if (network == null || !isValidTincIdentifier(network.getNetworkName())) {
                 log.error("网络不存在: {}", node.getNetworkName());
                 writeClientApiError(response, HttpStatus.NOT_FOUND, "CLIENT_NETWORK_NOT_FOUND", "网络不存在或名称无效");
                 return;
             }
 
-            // A successful download means that the server data plane is already connectable.
-            tincRuntimeManager.ensureNetworkReady(network.getNetworkName());
-
-            String serverHostContent = TincConfigUtils.readHostFile(network.getNetworkName(), "server_master");
+            MangeServer server = resolveServerForNetwork(network);
+            if (server == null) {
+                writeClientApiError(response, HttpStatus.SERVICE_UNAVAILABLE,
+                        "GATEWAY_UNAVAILABLE", "网关服务器不可用");
+                return;
+            }
+            // Success is tied to the network's selected Access Server, never implicitly to Management S.
+            if (!tincRuntimeRouter.inspectNetwork(server, network.getNetworkName()).isReady()) {
+                writeClientApiError(response, HttpStatus.SERVICE_UNAVAILABLE,
+                        "NETWORK_NOT_READY", "Access Server 网络未就绪");
+                return;
+            }
+            String serverHostContent = tincRuntimeRouter.readServerMaster(server, network.getNetworkName());
             if (StringUtils.isEmpty(serverHostContent)) {
                 writeClientApiError(response, HttpStatus.SERVICE_UNAVAILABLE, "GATEWAY_HOST_UNAVAILABLE",
                         "网关主机配置缺失");
@@ -238,6 +256,11 @@ public class TincClientApiController {
             log.warn("配置下载前网络未就绪: netCode={}", e.getCode());
             if (!response.isCommitted()) {
                 writeClientApiError(response, HttpStatus.SERVICE_UNAVAILABLE, e.getCode().name(), e.getMessage());
+            }
+        } catch (AccessAgentException e) {
+            log.warn("配置下载访问 Access Agent 失败: code={}", e.getCode());
+            if (!response.isCommitted()) {
+                writeClientApiError(response, HttpStatus.SERVICE_UNAVAILABLE, e.getCode(), e.getMessage());
             }
         } catch (Exception e) {
             log.error("生成配置包异常，错误类型={}", e.getClass().getSimpleName());
@@ -298,6 +321,9 @@ public class TincClientApiController {
             if (!isValidTincIdentifier(nodeName)) {
                 return clientApiError(HttpStatus.BAD_REQUEST, "CLIENT_SID_INVALID", "节点名称无效");
             }
+            if (isRevokedClientToken(token)) {
+                return clientApiError(HttpStatus.GONE, "CLIENT_NODE_REVOKED", "节点已被撤销");
+            }
             List<TincNodeMange> exactNodes = findExactNodes(nodeName);
             if (exactNodes.isEmpty()) {
                 log.error("节点不存在: {}", nodeName);
@@ -319,13 +345,18 @@ public class TincClientApiController {
                 return clientApiError(HttpStatus.BAD_REQUEST, "CLIENT_PUBLIC_KEY_INVALID", "节点 IPv4 配置无效");
             }
 
-            TincNetworkMange network = findExactNetwork(node.getNetworkName());
+            TincNetworkMange network = resolveNetworkForNode(node);
             if (network == null || !isValidTincIdentifier(network.getNetworkName())) {
                 log.error("网络不存在: {}", node.getNetworkName());
                 return clientApiError(HttpStatus.NOT_FOUND, "CLIENT_NETWORK_NOT_FOUND", "网络不存在或名称无效");
             }
 
-            String mainHostContent = TincConfigUtils.readHostFile(network.getNetworkName(), "server_master");
+            MangeServer server = resolveServerForNetwork(network);
+            if (server == null || StringUtils.isEmpty(server.getServerIp())) {
+                log.error("网络未关联可用网关服务器");
+                return clientApiError(HttpStatus.SERVICE_UNAVAILABLE, "GATEWAY_UNAVAILABLE", "网关服务器不可用");
+            }
+            String mainHostContent = tincRuntimeRouter.readServerMaster(server, network.getNetworkName());
             if (StringUtils.isEmpty(mainHostContent)) {
                 return clientApiError(HttpStatus.SERVICE_UNAVAILABLE, "GATEWAY_HOST_UNAVAILABLE", "网关主机配置缺失");
             }
@@ -337,13 +368,6 @@ public class TincClientApiController {
                 return clientApiError(HttpStatus.SERVICE_UNAVAILABLE, "GATEWAY_HOST_UNAVAILABLE", "网关主机配置不可用");
             }
 
-            MangeServer server = findExactServer(network.getServerName());
-            if (server == null || StringUtils.isEmpty(server.getServerIp())) {
-                log.error("网络未关联可用网关服务器");
-                return clientApiError(HttpStatus.SERVICE_UNAVAILABLE, "GATEWAY_UNAVAILABLE", "网关服务器不可用");
-            }
-            String serverIp = server.getServerIp();
-
             String cleanPubKey;
             try {
                 cleanPubKey = validateClientPublicKey(publicKeyContent, node.getNetworkIp());
@@ -352,8 +376,11 @@ public class TincClientApiController {
             }
             // 工具层按节点串行执行“回执校验 → 远程原子写入 → HUP → 本地提交”，
             // 防止并发重试重复推送，也不把没有远程成功回执的历史本地文件当作幂等成功。
-            boolean changed = TincConfigUtils.applyClientHostFileIfChanged(serverIp,
-                    network.getNetworkName(), nodeName, node.getNetworkIp() + "/32", cleanPubKey);
+            AccessPeerSpec peer = new AccessPeerSpec();
+            peer.setNodeName(nodeName);
+            peer.setSubnet(node.getNetworkIp() + "/32");
+            peer.setPublicKey(cleanPubKey);
+            boolean changed = tincRuntimeRouter.upsertPeer(server, network.getNetworkName(), peer).isChanged();
 
             if (changed) {
                 node.setStatus("已配置");
@@ -380,6 +407,9 @@ public class TincClientApiController {
         } catch (TincRuntimeException e) {
             log.warn("公钥上传后网络未就绪: netCode={}", e.getCode());
             return clientApiError(HttpStatus.SERVICE_UNAVAILABLE, e.getCode().name(), e.getMessage());
+        } catch (AccessAgentException e) {
+            log.warn("公钥上传访问 Access Agent 失败: code={}", e.getCode());
+            return clientApiError(HttpStatus.SERVICE_UNAVAILABLE, e.getCode(), e.getMessage());
         } catch (Exception e) {
             log.error("公钥上传接口异常，错误类型={}", e.getClass().getSimpleName());
             return clientApiError(HttpStatus.BAD_GATEWAY, "GATEWAY_KEY_APPLY_FAILED", "网关公钥应用失败");
@@ -458,6 +488,10 @@ public class TincClientApiController {
             if (!isValidTincIdentifier(nodeName)) {
                 return clientStateError(response, HttpStatus.BAD_REQUEST,
                         "CLIENT_SID_INVALID", "节点名称无效");
+            }
+            if (isRevokedClientToken(token)) {
+                return clientStateError(response, HttpStatus.GONE,
+                        "CLIENT_NODE_REVOKED", "节点已被撤销");
             }
 
             TincNodeMange node = findTokenBoundNode(findExactNodes(nodeName), token);
@@ -623,18 +657,8 @@ public class TincClientApiController {
     }
 
     private List<TincNodeMange> findExactNodes(String nodeName) {
-        TincNodeMange query = new TincNodeMange();
-        query.setNodeName(nodeName);
-        List<TincNodeMange> candidates = nodeMangeService.selectTincNodeMangeList(query);
-        List<TincNodeMange> matches = new java.util.ArrayList<>();
-        if (candidates != null) {
-            for (TincNodeMange candidate : candidates) {
-                if (nodeName.equals(candidate.getNodeName())) {
-                    matches.add(candidate);
-                }
-            }
-        }
-        return matches;
+        List<TincNodeMange> matches = nodeMangeService.selectByNodeNameExact(nodeName);
+        return matches == null ? java.util.Collections.emptyList() : matches;
     }
 
     private TincNodeMange findPasswordBoundNode(String nodeName, String password) {
@@ -667,53 +691,59 @@ public class TincClientApiController {
         return null;
     }
 
+    private boolean isRevokedClientToken(String token) throws Exception {
+        return StringUtils.isNotEmpty(token)
+                && redisCache.getCacheObject(CLIENT_REVOKED_TOKEN_PREFIX + sha256Hex(token)) != null;
+    }
+
     private TincNetworkMange findExactNetwork(String networkName) {
         if (!isValidTincIdentifier(networkName)) {
             return null;
         }
-        TincNetworkMange query = new TincNetworkMange();
-        query.setNetworkName(networkName);
-        List<TincNetworkMange> candidates = networkMangeService.selectTincNetworkMangeList(query);
-        TincNetworkMange match = null;
-        if (candidates != null) {
-            for (TincNetworkMange candidate : candidates) {
-                if (networkName.equals(candidate.getNetworkName())) {
-                    if (match != null) {
-                        throw new IllegalStateException("网络名称存在重复记录");
-                    }
-                    match = candidate;
-                }
-            }
-        }
-        return match;
+        return networkMangeService.selectByNetworkNameExact(networkName);
     }
 
     private MangeServer findExactServer(String serverName) {
         if (StringUtils.isEmpty(serverName)) {
             return null;
         }
-        MangeServer query = new MangeServer();
-        query.setServerName(serverName);
-        List<MangeServer> candidates = mangeServerService.selectMangeServerList(query);
-        MangeServer match = null;
-        if (candidates != null) {
-            for (MangeServer candidate : candidates) {
-                if (serverName.equals(candidate.getServerName())) {
-                    if (match != null) {
-                        throw new IllegalStateException("网关服务器名称存在重复记录");
-                    }
-                    match = candidate;
-                }
+        return mangeServerService.selectByServerNameExact(serverName);
+    }
+
+    private TincNetworkMange resolveNetworkForNode(TincNodeMange node) {
+        if (node.getNetworkId() != null) {
+            TincNetworkMange network = networkMangeService.selectTincNetworkMangeById(node.getNetworkId());
+            if (network == null) {
+                throw new IllegalStateException("节点关联的网络不存在");
             }
+            return network;
         }
-        return match;
+        log.warn("客户端节点缺少 network_id，使用已弃用的精确名称回退: nodeId={}", node.getId());
+        return findExactNetwork(node.getNetworkName());
+    }
+
+    private MangeServer resolveServerForNetwork(TincNetworkMange network) {
+        if (network.getServerId() != null) {
+            MangeServer server = mangeServerService.selectMangeServerById(network.getServerId());
+            if (server == null) {
+                throw new IllegalStateException("网络关联的服务器不存在");
+            }
+            return server;
+        }
+        log.warn("客户端网络缺少 server_id，使用已弃用的精确名称回退: networkId={}", network.getId());
+        return findExactServer(network.getServerName());
     }
 
     private String createClientToken(TincNodeMange node) throws Exception {
         byte[] random = new byte[32];
         CLIENT_TOKEN_RANDOM.nextBytes(random);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(random);
-        redisCache.setCacheObject(CLIENT_TOKEN_PREFIX + sha256Hex(token), String.valueOf(node.getId()),
+        String tokenHash = sha256Hex(token);
+        redisCache.setCacheObject(CLIENT_TOKEN_PREFIX + tokenHash, String.valueOf(node.getId()),
+                CLIENT_TOKEN_EXPIRATION_MINUTES, TimeUnit.MINUTES);
+        redisCache.setCacheSet(CLIENT_NODE_TOKEN_PREFIX + node.getId(),
+                java.util.Collections.singleton(tokenHash));
+        redisCache.expire(CLIENT_NODE_TOKEN_PREFIX + node.getId(),
                 CLIENT_TOKEN_EXPIRATION_MINUTES, TimeUnit.MINUTES);
         return token;
     }

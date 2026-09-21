@@ -31,6 +31,9 @@ public interface ITincNetworkMangeService
      */
     public List<TincNetworkMange> selectTincNetworkMangeList(TincNetworkMange tincNetworkMange);
 
+    /** 业务身份解析专用：精确匹配；重复名称会失败而不是任取一条。 */
+    public TincNetworkMange selectByNetworkNameExact(String networkName);
+
     /**
      * 新增Tinc内网集群管理
      * 添加新的Tinc内网集群配置信息

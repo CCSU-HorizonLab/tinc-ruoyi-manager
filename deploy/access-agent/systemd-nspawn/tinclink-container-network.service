@@ -1,0 +1,15 @@
+[Unit]
+Description=TincLink Access container management network
+After=network-pre.target
+Before=network.target network-online.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/test -d /sys/class/net/host0
+ExecStart=/usr/sbin/ip link set host0 up
+ExecStart=/usr/sbin/ip address replace 192.168.250.10/24 dev host0
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

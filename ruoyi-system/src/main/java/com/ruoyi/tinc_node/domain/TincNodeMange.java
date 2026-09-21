@@ -19,6 +19,9 @@ public class TincNodeMange extends BaseEntity
     @Excel(name = "ids")
     private Long id;
 
+    /** 稳定的所属网络主键；networkName 仅保留作展示与兼容 */
+    private Long networkId;
+
     /** 用户 */
     @Excel(name = "用户")
     private String userName;
@@ -65,6 +68,16 @@ public class TincNodeMange extends BaseEntity
     public Long getId() 
     {
         return id;
+    }
+
+    public void setNetworkId(Long networkId)
+    {
+        this.networkId = networkId;
+    }
+
+    public Long getNetworkId()
+    {
+        return networkId;
     }
 
     public void setUserName(String userName)
@@ -171,6 +184,7 @@ public class TincNodeMange extends BaseEntity
     public String toString() {
         return new ToStringBuilder(this,ToStringStyle.MULTI_LINE_STYLE)
             .append("id", getId())
+            .append("networkId", getNetworkId())
             .append("userName", getUserName())
             .append("tableId", getTableId())
             .append("serverName", getServerName())

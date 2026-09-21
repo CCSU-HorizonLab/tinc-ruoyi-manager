@@ -161,6 +161,13 @@ public class MangeServerController extends BaseController
         if (server == null) {
             return error("服务器不存在");
         }
+        if ("AGENT".equalsIgnoreCase(server.getRuntimeType())) {
+            MangeServer probed = mangeServerService.probeAgent(id);
+            return success().put("installed", "ONLINE".equals(probed.getAgentStatus()))
+                    .put("agentStatus", probed.getAgentStatus())
+                    .put("msg", "ONLINE".equals(probed.getAgentStatus())
+                            ? "Access Agent 在线" : "Access Agent 不可达");
+        }
         try {
             boolean installed = tincConfigTransport.isTincInstalled(server.getServerIp());
             return success().put("installed", installed)
@@ -186,11 +193,22 @@ public class MangeServerController extends BaseController
         if (server == null) {
             return error("服务器不存在");
         }
+        if ("AGENT".equalsIgnoreCase(server.getRuntimeType())) {
+            return error("AGENT_MANUAL_INSTALL_REQUIRED: 请先在 Access Server 上审计并安装 Access Agent，禁止后台通过 SSH 自动安装");
+        }
         try {
             String output = tincConfigTransport.installTinc(server.getServerIp());
             return success("Tinc 安装成功！").put("output", output);
         } catch (Exception e) {
             return error("Tinc 安装失败: " + e.getMessage());
         }
+    }
+
+    @PreAuthorize("@ss.hasPermi('manger:manger:query')")
+    @PostMapping("/{id}/agent/probe")
+    public AjaxResult probeAgent(@PathVariable("id") Long id)
+    {
+        MangeServer server = mangeServerService.probeAgent(id);
+        return server == null ? error("服务器不存在") : success(server);
     }
 }

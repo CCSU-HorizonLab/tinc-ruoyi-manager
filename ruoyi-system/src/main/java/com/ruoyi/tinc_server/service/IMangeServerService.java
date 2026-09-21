@@ -27,6 +27,9 @@ public interface IMangeServerService
      */
     public List<MangeServer> selectMangeServerList(MangeServer mangeServer);
 
+    /** 兼容历史数据时使用的唯一精确名称查询。 */
+    public MangeServer selectByServerNameExact(String serverName);
+
     /**
      * 新增服务器集群管理
      * 
@@ -58,4 +61,9 @@ public interface IMangeServerService
      * @return 结果
      */
     public int deleteMangeServerById(Long Id);
+
+    /** Probe one Agent and persist ONLINE/DEGRADED/UNREACHABLE without deleting the Server record. */
+    public MangeServer probeAgent(Long id);
+
+    public void pollAgentHealth();
 }

@@ -339,6 +339,32 @@ public class LocalTincRuntimeManager implements TincRuntimeManager {
         checkSocketOwner(own.port, "-lunp", pid);
     }
 
+    @Override
+    public TincNetworkStatus decommissionNetwork(String netName) {
+        requireIdentifier(netName, "网络名称");
+        ReentrantLock lock = locks.computeIfAbsent(netName, key -> new ReentrantLock());
+        lock.lock();
+        try {
+            // This deliberately preserves /etc/tinc/<netName>, all hosts and private keys.
+            TincCommandResult result = run("/usr/bin/systemctl", "disable", "--now", unit(netName));
+            if (!result.isSuccess()) {
+                throw new TincRuntimeException(TincRuntimeErrorCode.RUNTIME_FAILURE,
+                        "Tinc 网络安全停用失败，请管理员检查 systemd 日志");
+            }
+            TincNetworkStatus status = inspectNetworkStatus(netName);
+            if (status.isSystemdActive() || status.isMainPidPresent()) {
+                throw new TincRuntimeException(TincRuntimeErrorCode.RUNTIME_FAILURE,
+                        "Tinc 网络停用后仍存在运行进程");
+            }
+            status.setReadiness("DECOMMISSIONED");
+            status.setFailureCode(null);
+            status.setFailureMessage(null);
+            return status;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     private Config loadConfig(String netName) {
         Path network = networkPath(netName);
         Path conf = network.resolve("tinc.conf");

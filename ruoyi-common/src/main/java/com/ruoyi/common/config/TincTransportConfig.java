@@ -67,6 +67,7 @@ public class TincTransportConfig {
         }
 
         // 注入到 TincConfigUtils 静态方法中
+        TincConfigUtils.setBasePath(runtimeConfigRoot);
         TincConfigUtils.setTransport(transport);
         TincConfigUtils.setRuntimeManager(runtimeManager);
         return transport;

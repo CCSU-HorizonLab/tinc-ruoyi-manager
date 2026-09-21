@@ -1,13 +1,17 @@
 package com.ruoyi.tinc_node.service.impl;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import com.ruoyi.common.utils.DateUtils;
-import com.ruoyi.common.utils.TincConfigUtils;
+import com.ruoyi.common.tinc.access.AccessPeerSpec;
+import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.mapper.TincNetworkMangeMapper;
 import com.ruoyi.tinc_server.domain.MangeServer;
 import com.ruoyi.tinc_server.service.IMangeServerService;
+import com.ruoyi.tinc.validation.TincModelValidator;
+import com.ruoyi.tinc.runtime.TincRuntimeRouter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +38,17 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     @Autowired
     private IMangeServerService mangeServerService;
 
+    @Autowired
+    private TincRuntimeRouter tincRuntimeRouter;
+
+    @Autowired(required = false)
+    private RedisCache redisCache;
+
+    private static final String CLIENT_TOKEN_PREFIX = "tinc:client:token:";
+    private static final String CLIENT_NODE_TOKEN_PREFIX = "tinc:client:node-tokens:";
+    private static final String CLIENT_REVOKED_TOKEN_PREFIX = "tinc:client:revoked-token:";
+    private static final int REVOKED_TOKEN_TOMBSTONE_HOURS = 24;
+
     @Override
     public TincNodeMange selectTincNodeMangeById(Long id) {
         return tincNodeMangeMapper.selectTincNodeMangeById(id);
@@ -44,11 +59,25 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         return tincNodeMangeMapper.selectTincNodeMangeList(tincNodeMange);
     }
 
+    @Override
+    public List<TincNodeMange> selectByNodeNameExact(String nodeName) {
+        return tincNodeMangeMapper.selectByNodeNameExact(nodeName);
+    }
+
     /**
      * 新增 Tinc 节点（仅入库，密钥由 Qt 客户端自行生成并通过 API 上传）
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int insertTincNodeMange(TincNodeMange tincNodeMange) {
+        TincNetworkMange network = requireNetworkForUpdate(tincNodeMange.getNetworkId());
+        tincNodeMange.setNetworkName(network.getNetworkName());
+        MangeServer server = requireServer(network);
+        tincNodeMange.setServerName(server.getServerName());
+        tincNodeMange.setNodeName(TincModelValidator.requireNodeName(tincNodeMange.getNodeName()));
+        tincNodeMange.setNetworkIp(TincModelValidator.requireNodeIp(
+                tincNodeMange.getNetworkIp(), network.getSegment()));
+        validateNodeUniqueness(tincNodeMange);
         tincNodeMange.setCreateTime(DateUtils.getNowDate());
         int rows = tincNodeMangeMapper.insertTincNodeMange(tincNodeMange);
         log.info("节点 [{}] 基础信息创建成功，等待客户端上传公钥...", tincNodeMange.getNodeName());
@@ -73,25 +102,34 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
      * </ul>
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int updateTincNodeMange(TincNodeMange tincNodeMange) {
+        TincNodeMange oldNode = tincNodeMangeMapper.selectTincNodeMangeById(tincNodeMange.getId());
+        if (oldNode == null) {
+            throw new IllegalArgumentException("节点不存在");
+        }
+        prohibitRuntimeIdentityChange(tincNodeMange, oldNode);
+        TincNetworkMange network = resolveNetwork(oldNode);
+        MangeServer server = requireServer(network);
+        tincNodeMange.setNetworkId(network.getId());
+        tincNodeMange.setNetworkName(network.getNetworkName());
+        tincNodeMange.setServerName(server.getServerName());
+
+        if (tincNodeMange.getNetworkIp() != null && !tincNodeMange.getNetworkIp().isEmpty()) {
+            tincNodeMange.setNetworkIp(TincModelValidator.requireNodeIp(
+                    tincNodeMange.getNetworkIp(), network.getSegment()));
+            validateNodeUniqueness(tincNodeMange);
+        }
         String dirtyText = tincNodeMange.getPassword();
 
         // 判断是否为公钥上传场景：password 字段里是否包含 PEM 公钥头尾
         if (dirtyText != null && dirtyText.contains("-----BEGIN") && dirtyText.contains("PUBLIC KEY-----")) {
 
             // 1. 查出旧节点信息（获取 netName, nodeName, 旧的 IP）
-            TincNodeMange oldNode = tincNodeMangeMapper.selectTincNodeMangeById(tincNodeMange.getId());
-            if (oldNode == null) {
-                throw new RuntimeException("节点不存在");
-            }
-
-            String netName  = oldNode.getNetworkName();
+            String netName  = network.getNetworkName();
             String nodeName = oldNode.getNodeName();
             String rawIp    = oldNode.getNetworkIp();
             String nodeIp   = (rawIp != null && rawIp.contains("/")) ? rawIp : rawIp + "/32";
-
-            // ★ 查出该网络对应的网关 IP
-            String gatewayIp = getGatewayIpForNetwork(netName);
 
             // 2. 正则精准抠出纯净公钥块
             java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
@@ -103,11 +141,11 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
             }
             String cleanPubKey = matcher.group(0);
 
-            // 3. 覆写本地 hosts + 推送远程网关
-            TincConfigUtils.createHostFile(gatewayIp, netName, nodeName, nodeIp, cleanPubKey);
-
-            // 4. ★ 远程重载 tincd 使新节点公钥生效
-            TincConfigUtils.reloadGatewayTinc(gatewayIp, netName);
+            AccessPeerSpec peer = new AccessPeerSpec();
+            peer.setNodeName(nodeName);
+            peer.setSubnet(nodeIp);
+            peer.setPublicKey(cleanPubKey);
+            tincRuntimeRouter.upsertPeer(server, netName, peer);
 
             // 5. 仅更新业务状态，绝不将公钥写入数据库
             tincNodeMange.setPassword(null);
@@ -130,8 +168,7 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         for (Long id : ids) {
             TincNodeMange node = tincNodeMangeMapper.selectTincNodeMangeById(id);
             if (node != null) {
-                log.warn("删除 Tinc 节点管理记录但保留网关 hosts 配置: id={}, nodeName={}, netName={}",
-                        id, node.getNodeName(), node.getNetworkName());
+                revokeRuntimeNode(node);
             }
         }
         return tincNodeMangeMapper.deleteTincNodeMangeByIds(ids);
@@ -142,8 +179,7 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     public int deleteTincNodeMangeById(Long id) {
         TincNodeMange node = tincNodeMangeMapper.selectTincNodeMangeById(id);
         if (node != null) {
-            log.warn("删除 Tinc 节点管理记录但保留网关 hosts 配置: id={}, nodeName={}, netName={}",
-                    id, node.getNodeName(), node.getNetworkName());
+            revokeRuntimeNode(node);
         }
         return tincNodeMangeMapper.deleteTincNodeMangeById(id);
     }
@@ -154,22 +190,101 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
      * 链路：tinc_node → tinc_network → server_name → mange_server → server_ip
      * </p>
      */
-    private String getGatewayIpForNetwork(String networkName) {
-        TincNetworkMange queryNetwork = new TincNetworkMange();
-        queryNetwork.setNetworkName(networkName);
-        List<TincNetworkMange> networks = tincNetworkMangeMapper.selectTincNetworkMangeList(queryNetwork);
-        if (networks == null || networks.isEmpty()) {
-            throw new RuntimeException("网络不存在: " + networkName);
+    private TincNetworkMange requireNetwork(Long networkId) {
+        if (networkId == null) {
+            throw new IllegalArgumentException("请选择有效的网络 ID");
         }
-
-        String serverName = networks.get(0).getServerName();
-        MangeServer queryServer = new MangeServer();
-        queryServer.setServerName(serverName);
-        List<MangeServer> servers = mangeServerService.selectMangeServerList(queryServer);
-        if (servers == null || servers.isEmpty()) {
-            throw new RuntimeException("服务器不存在: " + serverName);
+        TincNetworkMange network = tincNetworkMangeMapper.selectTincNetworkMangeById(networkId);
+        if (network == null) {
+            throw new IllegalArgumentException("所属网络不存在: id=" + networkId);
         }
+        return network;
+    }
 
-        return servers.get(0).getServerIp();
+    private TincNetworkMange requireNetworkForUpdate(Long networkId) {
+        if (networkId == null) {
+            throw new IllegalArgumentException("请选择有效的网络 ID");
+        }
+        TincNetworkMange network = tincNetworkMangeMapper.selectTincNetworkMangeByIdForUpdate(networkId);
+        if (network == null) {
+            throw new IllegalArgumentException("所属网络不存在: id=" + networkId);
+        }
+        return network;
+    }
+
+    /** 历史 network_id 为空时仅允许名称唯一精确回退；绝不使用 LIKE 或任取第一条。 */
+    private TincNetworkMange resolveNetwork(TincNodeMange node) {
+        if (node.getNetworkId() != null) {
+            return requireNetwork(node.getNetworkId());
+        }
+        log.warn("节点缺少 network_id，使用已弃用的精确名称回退: nodeId={}", node.getId());
+        List<TincNetworkMange> matches = tincNetworkMangeMapper.selectByNetworkNameExact(node.getNetworkName());
+        if (matches == null || matches.size() != 1) {
+            throw new IllegalStateException("历史节点无法唯一解析所属网络");
+        }
+        return matches.get(0);
+    }
+
+    private MangeServer requireServer(TincNetworkMange network) {
+        if (network.getServerId() != null) {
+            MangeServer server = mangeServerService.selectMangeServerById(network.getServerId());
+            if (server == null) {
+                throw new IllegalStateException("网络关联的服务器不存在");
+            }
+            return server;
+        }
+        log.warn("网络缺少 server_id，使用已弃用的精确名称回退: networkId={}", network.getId());
+        MangeServer server = mangeServerService.selectByServerNameExact(network.getServerName());
+        if (server == null) {
+            throw new IllegalStateException("历史网络无法唯一解析接入服务器");
+        }
+        return server;
+    }
+
+    private void validateNodeUniqueness(TincNodeMange node) {
+        if (tincNodeMangeMapper.countNodeNameInNetwork(
+                node.getNetworkId(), node.getNodeName(), node.getId()) > 0) {
+            throw new IllegalStateException("TINC_NODE_NAME_CONFLICT: 同一网络内节点名称必须唯一");
+        }
+        if (tincNodeMangeMapper.countNetworkIpInNetwork(
+                node.getNetworkId(), node.getNetworkIp(), node.getId()) > 0) {
+            throw new IllegalStateException("TINC_NODE_IP_CONFLICT: 同一网络内节点地址必须唯一");
+        }
+    }
+
+    private void prohibitRuntimeIdentityChange(TincNodeMange update, TincNodeMange oldNode) {
+        if (update.getNodeName() != null && !oldNode.getNodeName().equals(update.getNodeName())) {
+            throw new IllegalStateException("TINC_NODE_RENAME_FORBIDDEN: 节点运行名称不能通过普通修改变更");
+        }
+        if (update.getNetworkId() != null && oldNode.getNetworkId() != null
+                && !oldNode.getNetworkId().equals(update.getNetworkId())) {
+            throw new IllegalStateException("TINC_NODE_MOVE_FORBIDDEN: 节点不能通过普通修改迁移网络");
+        }
+        if (update.getNetworkName() != null && !oldNode.getNetworkName().equals(update.getNetworkName())) {
+            throw new IllegalStateException("TINC_NODE_MOVE_FORBIDDEN: 节点不能通过普通修改迁移网络");
+        }
+    }
+
+    private void revokeRuntimeNode(TincNodeMange node) {
+        TincNetworkMange network = resolveNetwork(node);
+        MangeServer server = requireServer(network);
+        tincRuntimeRouter.deletePeer(server, network.getNetworkName(), node.getNodeName());
+        revokeClientTokens(node.getId());
+        log.info("Tinc 节点运行授权已撤销: id={}, nodeName={}, netName={}",
+                node.getId(), node.getNodeName(), network.getNetworkName());
+    }
+
+    private void revokeClientTokens(Long nodeId) {
+        if (redisCache == null || nodeId == null) return;
+        String indexKey = CLIENT_NODE_TOKEN_PREFIX + nodeId;
+        java.util.Set<String> hashes = redisCache.getCacheSet(indexKey);
+        if (hashes != null) {
+            for (String hash : hashes) {
+                redisCache.setCacheObject(CLIENT_REVOKED_TOKEN_PREFIX + hash, String.valueOf(nodeId),
+                        REVOKED_TOKEN_TOMBSTONE_HOURS, TimeUnit.HOURS);
+                redisCache.deleteObject(CLIENT_TOKEN_PREFIX + hash);
+            }
+        }
+        redisCache.deleteObject(indexKey);
     }
 }

@@ -9,4 +9,6 @@ public interface TincRuntimeManager {
     void verifyPeerApplied(String netName, String sid, String expectedSha256);
     void ensureFirewallPort(int port);
     void detectInterfaceAndPortConflicts(String netName);
+    /** Stop and disable the service without deleting configuration or key material. */
+    TincNetworkStatus decommissionNetwork(String netName);
 }
