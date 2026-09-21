@@ -88,6 +88,24 @@
       color: $base-menu-color-active !important;
     }
 
+    .el-menu-item.is-active {
+      background-color: rgba(2, 132, 199, 0.14) !important;
+      color: #38bdf8 !important;
+      font-weight: 600;
+      position: relative;
+
+      &::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background-color: #0284c7;
+        border-radius: 0 2px 2px 0;
+      }
+    }
+
     & .nest-menu .el-submenu>.el-submenu__title,
     & .el-submenu .el-menu-item {
       min-width: $base-sidebar-width !important;

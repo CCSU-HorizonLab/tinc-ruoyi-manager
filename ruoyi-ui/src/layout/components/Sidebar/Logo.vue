@@ -35,7 +35,7 @@ export default {
   },
   data() {
     return {
-      title: process.env.VUE_APP_TITLE,
+      title: 'TincLink 管理平台',
       logo: logoImg
     }
   }

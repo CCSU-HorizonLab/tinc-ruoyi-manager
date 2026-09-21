@@ -1,11 +1,17 @@
 <template>
   <div class="single-network-control" v-loading="loading">
-    <div class="header-section">
-      <div class="title-wrapper">
-        <h2>单网监控面板</h2>
-        <p>实时监控单个内网的状态与性能</p>
+    <!-- 统一标准 Header -->
+    <div class="tl-page-header">
+      <div class="tl-header-left">
+        <div class="tl-header-icon">
+          <i class="el-icon-monitor"></i>
+        </div>
+        <div class="tl-header-titles">
+          <h2 class="tl-header-title">单网监控面板</h2>
+          <p class="tl-header-desc">查看指定接入服务器下虚拟网络的运行状态、拓扑指标与健康度</p>
+        </div>
       </div>
-      <div class="action-wrapper" v-if="selectedNetwork">
+      <div class="tl-header-actions" v-if="selectedNetwork">
         <el-switch
           v-model="autoRefresh"
           active-text="自动刷新(30s)"
@@ -21,6 +27,7 @@
         </el-button>
         <el-button 
           size="small" 
+          icon="el-icon-switch-button"
           @click="resetSelection"
           style="margin-left: 10px;">
           重新选择
@@ -28,57 +35,125 @@
       </div>
     </div>
     
-    <!-- 网络选择区域 -->
-    <el-card v-if="!selectedNetwork" class="selection-card" shadow="never">
-      <div class="network-select-container">
-        <div class="select-icon">
-          <i class="el-icon-monitor"></i>
+    <!-- 未选定网络：选择引导与概览区域 -->
+    <div v-if="!selectedNetwork">
+      <!-- 选择控制卡片 -->
+      <div class="tl-card selection-card">
+        <div class="selection-card-header">
+          <div class="step-badge">第一步</div>
+          <h3 class="selection-title">选择要监控的虚拟网络</h3>
+          <p class="selection-desc">从已注册的 Access Server 中选择目标节点及所属虚拟网络以载入监控详情</p>
         </div>
-        <h3>请选择要查看的内网</h3>
+
         <el-form :inline="true" class="network-select-form">
-          <el-form-item label="服务器">
-            <el-select v-model="selectedServer" placeholder="请选择服务器" @change="handleServerChange" filterable>
+          <el-form-item label="接入服务器">
+            <el-select v-model="selectedServer" placeholder="请选择接入服务器" @change="handleServerChange" filterable style="width: 220px;">
               <el-option
                 v-for="server in servers"
                 :key="server.value"
                 :label="server.label"
                 :value="server.value">
+                <i class="el-icon-office-building" style="margin-right: 6px; color: #0284c7;"></i>
+                <span>{{ server.label }}</span>
               </el-option>
             </el-select>
           </el-form-item>
-          <el-form-item label="内网">
-            <el-select v-model="selectedNetworkId" placeholder="请选择内网" :disabled="!selectedServer" filterable>
+          <el-form-item label="虚拟网络">
+            <el-select v-model="selectedNetworkId" placeholder="请选择虚拟网络" :disabled="!selectedServer" filterable style="width: 220px;">
               <el-option
                 v-for="network in networks"
                 :key="network.value"
                 :label="network.label"
                 :value="network.value">
+                <i class="el-icon-connection" style="margin-right: 6px; color: #10b981;"></i>
+                <span>{{ network.label }}</span>
               </el-option>
             </el-select>
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" @click="confirmSelection" :disabled="!selectedServer || !selectedNetworkId">进入监控</el-button>
+            <el-button 
+              type="primary" 
+              icon="el-icon-video-play" 
+              @click="confirmSelection" 
+              :disabled="!selectedServer || !selectedNetworkId">
+              进入实时监控
+            </el-button>
           </el-form-item>
         </el-form>
       </div>
-    </el-card>
+
+      <!-- 空状态与专业架构引导 (填充空白，严禁造假数据) -->
+      <div class="tl-card empty-guidance-card">
+        <div class="guidance-empty-illustration">
+          <div class="radar-box">
+            <i class="el-icon-data-line"></i>
+          </div>
+          <h4 class="guidance-main-tip">选择一个 Access Server 和 Network 以查看实时运行状态</h4>
+          <p class="guidance-sub-tip">监控面板将实时读取对应宿主网关与该网络的 Tinc Runtime 运行状态、接口流量与拓扑心跳</p>
+        </div>
+
+        <div class="guidance-features-grid">
+          <div class="guidance-feature-item">
+            <div class="item-icon-wrap icon-blue">
+              <i class="el-icon-cpu"></i>
+            </div>
+            <div class="item-content">
+              <div class="item-title">接入服务器绑定</div>
+              <div class="item-desc">精准定位虚拟网络的宿主网关，验证本地运行时或远程 Agent 通信链路</div>
+            </div>
+          </div>
+
+          <div class="guidance-feature-item">
+            <div class="item-icon-wrap icon-green">
+              <i class="el-icon-lock"></i>
+            </div>
+            <div class="item-content">
+              <div class="item-title">安全隧道与公钥路由</div>
+              <div class="item-desc">全流量端到端加密、严格网段地址隔离与确定性公钥交换路由</div>
+            </div>
+          </div>
+
+          <div class="guidance-feature-item">
+            <div class="item-icon-wrap icon-purple">
+              <i class="el-icon-aim"></i>
+            </div>
+            <div class="item-content">
+              <div class="item-title">实时探针与健康就绪</div>
+              <div class="item-desc">自动化采集网关负载、Tinc 守护进程 PID 与网络 READY 就绪度</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     
-    <!-- 网络监控详情区域 -->
+    <!-- 网络监控详情区域 (已选定网络) -->
     <div v-else>
-      <!-- 网络基本信息 -->
-      <div class="network-info-banner">
+      <!-- 网络基本信息横幅 -->
+      <div class="tl-card network-info-banner">
         <div class="info-left">
-          <span class="label">当前监控:</span>
-          <span class="value">{{ selectedNetworkName }}</span>
-          <el-divider direction="vertical"></el-divider>
-          <span class="label">服务器:</span>
-          <span class="value">{{ selectedServer }}</span>
+          <div class="banner-badge">
+            <i class="el-icon-connection"></i>
+          </div>
+          <div class="banner-meta">
+            <div class="banner-title-row">
+              <span class="label">当前监控内网:</span>
+              <span class="value network-name-highlight">{{ selectedNetworkName }}</span>
+              <el-divider direction="vertical"></el-divider>
+              <span class="label">宿主服务器:</span>
+              <span class="value"><i class="el-icon-office-building"></i> {{ selectedServer }}</span>
+            </div>
+            <div class="banner-subtitle-row">
+              <span class="sub-label">监控目标ID:</span>
+              <span class="tl-code-badge">{{ selectedNetworkId }}</span>
+              <span class="status-real-tag">真实运行时链路</span>
+            </div>
+          </div>
         </div>
         <div class="info-right">
-          <el-tag :type="statusTagType" effect="dark" size="medium">
-            <i :class="isOnline ? 'el-icon-success' : 'el-icon-error'"></i>
+          <span :class="['tl-status-badge', isOnline ? 'ready' : 'offline']" style="font-size: 13px; padding: 6px 14px;">
+            <span class="tl-status-dot"></span>
             {{ statusLabel }}
-          </el-tag>
+          </span>
         </div>
       </div>
       
@@ -86,10 +161,10 @@
       <el-row :gutter="20" style="margin-bottom: 20px;">
         <!-- 响应时间卡片 -->
         <el-col :xs="24" :sm="12" :lg="6">
-          <el-card class="monitor-card" shadow="hover">
+          <el-card class="monitor-card tl-card" shadow="hover">
             <div slot="header" class="card-header">
               <span>响应时间</span>
-              <el-tag size="mini" type="info">实时</el-tag>
+              <span class="tl-demo-badge">演示数据</span>
             </div>
             <div class="card-content">
               <div class="progress-wrapper">
@@ -122,10 +197,10 @@
         
         <!-- 健康分数卡片 -->
         <el-col :xs="24" :sm="12" :lg="6">
-          <el-card class="monitor-card" shadow="hover">
+          <el-card class="monitor-card tl-card" shadow="hover">
             <div slot="header" class="card-header">
               <span>健康分数</span>
-              <el-tag size="mini" type="success">综合</el-tag>
+              <span class="tl-demo-badge">演示数据</span>
             </div>
             <div class="card-content">
               <div class="progress-wrapper">
@@ -142,7 +217,7 @@
                   <span class="detail-value">{{ healthScore.network }}分</span>
                 </div>
                 <div class="detail-item">
-                  <span class="detail-label">安全部分</span>
+                  <span class="detail-label">安全准入</span>
                   <span class="detail-value">{{ healthScore.security }}分</span>
                 </div>
               </div>
@@ -152,10 +227,10 @@
         
         <!-- 流量卡片 -->
         <el-col :xs="24" :sm="12" :lg="6">
-          <el-card class="monitor-card" shadow="hover">
+          <el-card class="monitor-card tl-card" shadow="hover">
             <div slot="header" class="card-header">
               <span>流量状态</span>
-              <el-tag size="mini" type="warning">速率</el-tag>
+              <span class="tl-demo-badge">演示数据</span>
             </div>
             <div class="card-content">
               <div class="progress-wrapper">
@@ -174,11 +249,11 @@
               </div>
               <div class="monitor-details">
                 <div class="detail-item">
-                  <span class="detail-label">上传</span>
+                  <span class="detail-label">上行速率</span>
                   <span class="detail-value">{{ traffic.upload }} Mbps</span>
                 </div>
                 <div class="detail-item">
-                  <span class="detail-label">总计</span>
+                  <span class="detail-label">累计吞吐</span>
                   <span class="detail-value">{{ traffic.total }} Mbps</span>
                 </div>
               </div>
@@ -188,10 +263,10 @@
         
         <!-- 节点在线率卡片 -->
         <el-col :xs="24" :sm="12" :lg="6">
-          <el-card class="monitor-card" shadow="hover">
+          <el-card class="monitor-card tl-card" shadow="hover">
             <div slot="header" class="card-header">
               <span>节点状态</span>
-              <el-tag size="mini" type="danger">在线率</el-tag>
+              <span class="tl-demo-badge">演示数据</span>
             </div>
             <div class="card-content">
               <div class="progress-wrapper">
@@ -204,11 +279,11 @@
               </div>
               <div class="monitor-details">
                 <div class="detail-item">
-                  <span class="detail-label">在线</span>
+                  <span class="detail-label">在线节点</span>
                   <span class="detail-value success">{{ nodeRate.online }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="detail-label">离线</span>
+                  <span class="detail-label">离线节点</span>
                   <span class="detail-value danger">{{ nodeRate.offline }}</span>
                 </div>
               </div>
@@ -219,11 +294,12 @@
       
       <!-- 监控图表区域 -->
       <el-row :gutter="20">
-        <!-- 健康百分趋势图表 -->
+        <!-- 健康趋势图表 -->
         <el-col :xs="24" :lg="12">
-          <el-card class="chart-card" shadow="hover">
+          <el-card class="chart-card tl-card" shadow="hover">
             <div slot="header" class="card-header">
               <span class="title">健康评分趋势（前7天）</span>
+              <span class="tl-demo-badge">演示数据</span>
             </div>
             <div class="card-content">
               <div class="chart-container">
@@ -235,9 +311,10 @@
         
         <!-- 网络中断事件图表 -->
         <el-col :xs="24" :lg="12">
-          <el-card class="chart-card" shadow="hover">
+          <el-card class="chart-card tl-card" shadow="hover">
             <div slot="header" class="card-header">
               <span class="title">网络中断事件（前7天）</span>
+              <span class="tl-demo-badge">演示数据</span>
             </div>
             <div class="card-content">
               <div class="chart-container">
@@ -268,17 +345,13 @@ export default {
       loading: false,
       autoRefresh: false,
       refreshTimer: null,
-      // 服务器列表
       servers: [],
-      // 内网列表
       networks: [],
-      // 选中的服务器和内网
       selectedServer: '',
       selectedNetworkId: '',
       selectedNetwork: false,
       selectedNetworkName: '',
       
-      // 颜色配置
       responseTimeColors: [
         { color: '#67c23a', percentage: 40 },
         { color: '#e6a23c', percentage: 70 },
@@ -295,16 +368,13 @@ export default {
         { color: '#67c23a', percentage: 100 }
       ],
 
-      // 网络在线状态
       isOnline: true,
       
-      // 监控指标数据
       responseTime: { value: 0, progress: 0, avg: 0, max: 0, min: 0 },
       healthScore: { value: 0, progress: 0, network: 0, test: 0, security: 0 },
       traffic: { value: 0, progress: 0, upload: 0, total: 0, bandwidth: 0 },
       nodeRate: { value: 0, progress: 0, online: 0, offline: 0, total: 0 },
       
-      // 图表数据
       interruptEventData: {
         expectedData: [],
         actualData: []
@@ -316,7 +386,7 @@ export default {
       return this.isOnline ? 'success' : 'danger'
     },
     statusLabel() {
-      return this.isOnline ? '网络在线' : '网络离线'
+      return this.isOnline ? 'READY · 运行正常' : 'NOT READY · 离线'
     }
   },
   created() {
@@ -326,7 +396,6 @@ export default {
     this.stopRefreshTimer()
   },
   methods: {
-    /** 获取服务器列表 */
     getServerOptions() {
       listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
         this.servers = response.rows.map(server => ({
@@ -336,7 +405,6 @@ export default {
       })
     },
 
-    /** 根据服务器获取内网列表 */
     getNetworksByServer(serverName) {
       listNetwork({ serverName: serverName }).then(response => {
         this.networks = response.rows.map(network => ({
@@ -346,7 +414,6 @@ export default {
       })
     },
     
-    /** 处理服务器选择变化 */
     handleServerChange(serverName) {
       if (serverName) {
         this.getNetworksByServer(serverName);
@@ -356,7 +423,6 @@ export default {
       this.selectedNetworkId = '';
     },
     
-    /** 确认选择 */
     confirmSelection() {
       if (!this.selectedServer || !this.selectedNetworkId) {
         return;
@@ -369,7 +435,6 @@ export default {
       }
     },
 
-    /** 获取实时监控数据 */
     getMonitorData() {
       this.loading = true;
       getSingleNetworkMonitor(this.selectedNetworkId).then(response => {
@@ -392,7 +457,6 @@ export default {
       this.interruptEventData = data.interruptEventData;
     },
     
-    /** 模拟监控数据 */
     simulateMonitorData() {
       this.isOnline = true;
       this.responseTime = { value: 45, progress: 35, avg: 43, max: 88, min: 38 };
@@ -415,7 +479,6 @@ export default {
       };
     },
     
-    /** 处理自动刷新开关变化 */
     handleAutoRefreshChange(val) {
       if (val) {
         this.startRefreshTimer()
@@ -436,7 +499,6 @@ export default {
       }
     },
 
-    /** 重置选择 */
     resetSelection() {
       this.stopRefreshTimer();
       this.autoRefresh = false;
@@ -452,86 +514,226 @@ export default {
 
 <style lang="scss" scoped>
 .single-network-control {
-  padding: 20px;
-  background-color: #f8f9fb;
-  min-height: calc(100vh - 84px);
-}
-
-.header-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 25px;
-  
-  .title-wrapper {
-    h2 {
-      margin: 0 0 5px 0;
-      font-size: 24px;
-      color: #303133;
-    }
-    p {
-      margin: 0;
-      font-size: 14px;
-      color: #909399;
-    }
-  }
+  padding: 20px 24px;
 }
 
 /* 选择卡片 */
 .selection-card {
-  max-width: 800px;
-  margin: 50px auto;
-  border-radius: 12px;
-  border: 1px solid #ebeef5;
-  
-  .network-select-container {
-    padding: 40px 20px;
-    text-align: center;
-    
-    .select-icon {
-      font-size: 60px;
-      color: #409eff;
-      margin-bottom: 20px;
-      opacity: 0.8;
+  padding: 28px 32px;
+  margin-bottom: 24px;
+
+  .selection-card-header {
+    margin-bottom: 24px;
+
+    .step-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      color: #0284c7;
+      background: #e0f2fe;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
     }
-    
-    h3 {
-      font-size: 22px;
-      color: #303133;
-      margin-bottom: 40px;
+
+    .selection-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #0f172a;
+      margin: 0 0 6px 0;
+    }
+
+    .selection-desc {
+      font-size: 13px;
+      color: #64748b;
+      margin: 0;
+    }
+  }
+
+  .network-select-form {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+
+    .el-form-item {
+      margin-bottom: 0;
+    }
+  }
+}
+
+/* 引导说明区域 */
+.empty-guidance-card {
+  padding: 36px 32px;
+
+  .guidance-empty-illustration {
+    text-align: center;
+    padding-bottom: 30px;
+    border-bottom: 1px solid #f1f5f9;
+    margin-bottom: 30px;
+
+    .radar-box {
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
+      background: #f0f9ff;
+      color: #0284c7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin: 0 auto 16px auto;
+    }
+
+    .guidance-main-tip {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1e293b;
+      margin: 0 0 8px 0;
+    }
+
+    .guidance-sub-tip {
+      font-size: 13px;
+      color: #64748b;
+      margin: 0 auto;
+      max-width: 550px;
+      line-height: 1.5;
+    }
+  }
+
+  .guidance-features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+
+    .guidance-feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 16px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+
+      .item-icon-wrap {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+
+        &.icon-blue {
+          background: #e0f2fe;
+          color: #0284c7;
+        }
+
+        &.icon-green {
+          background: #d1fae5;
+          color: #059669;
+        }
+
+        &.icon-purple {
+          background: #ede9fe;
+          color: #7c3aed;
+        }
+      }
+
+      .item-content {
+        .item-title {
+          font-size: 14px;
+          font-weight: 600;
+          color: #0f172a;
+          margin-bottom: 4px;
+        }
+
+        .item-desc {
+          font-size: 12px;
+          color: #64748b;
+          line-height: 1.5;
+        }
+      }
     }
   }
 }
 
 /* 信息横幅 */
 .network-info-banner {
-  background: #fff;
-  padding: 15px 25px;
-  border-radius: 10px;
-  margin-bottom: 20px;
+  padding: 18px 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05);
-  
+  flex-wrap: wrap;
+  gap: 16px;
+
   .info-left {
-    .label {
-      color: #909399;
-      font-size: 14px;
-      margin-right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+
+    .banner-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+      color: #0284c7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
     }
-    .value {
-      color: #303133;
-      font-weight: 600;
-      font-size: 16px;
+
+    .banner-meta {
+      .banner-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+
+        .label {
+          color: #64748b;
+          font-size: 13px;
+        }
+
+        .value {
+          color: #0f172a;
+          font-weight: 600;
+          font-size: 15px;
+        }
+
+        .network-name-highlight {
+          color: #0284c7;
+          font-size: 16px;
+        }
+      }
+
+      .banner-subtitle-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+
+        .sub-label {
+          font-size: 12px;
+          color: #94a3b8;
+        }
+
+        .status-real-tag {
+          font-size: 11px;
+          color: #059669;
+          background: #d1fae5;
+          padding: 1px 6px;
+          border-radius: 4px;
+        }
+      }
     }
   }
 }
 
-/* 监控卡片 */
+/* 监控指标卡片 */
 .monitor-card {
-  border-radius: 10px;
-  border: none;
   height: 100%;
   
   .card-header {
@@ -539,14 +741,15 @@ export default {
     justify-content: space-between;
     align-items: center;
     font-weight: 600;
-    color: #606266;
+    color: #334155;
+    font-size: 14px;
   }
 }
 
 .progress-wrapper {
   display: flex;
   justify-content: center;
-  padding: 10px 0 20px;
+  padding: 10px 0 16px;
   
   .progress-text {
     display: flex;
@@ -554,378 +757,54 @@ export default {
     align-items: center;
     
     .value {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: bold;
-      color: #303133;
+      color: #0f172a;
     }
     .unit {
       font-size: 12px;
-      color: #909399;
+      color: #64748b;
     }
   }
 }
 
 .monitor-details {
-  border-top: 1px solid #f2f6fc;
-  padding-top: 15px;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 12px;
   
   .detail-item {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 8px;
-    font-size: 13px;
+    margin-bottom: 6px;
+    font-size: 12px;
     
     .detail-label {
-      color: #909399;
+      color: #64748b;
     }
     .detail-value {
-      color: #303133;
+      color: #0f172a;
       font-weight: 600;
     }
-    .detail-value.success { color: #67c23a; }
-    .detail-value.warning { color: #e6a23c; }
-    .detail-value.danger { color: #f56c6c; }
+    .detail-value.success { color: #10b981; }
+    .detail-value.warning { color: #f59e0b; }
+    .detail-value.danger { color: #ef4444; }
   }
 }
 
 /* 图表卡片 */
 .chart-card {
-  border-radius: 10px;
-  border: none;
-  margin-top: 10px;
-  
-  .card-header {
-    .title {
-      font-size: 16px;
-      font-weight: 600;
-      color: #303133;
-    }
-  }
-  
-  .chart-container {
-    height: 250px;
-  }
-}
-</style>
-
-<script>
-import LineChart from './LineChart.vue'
-import BarChart from './BarChart.vue'
-import { listServer } from '@/api/tinc/server'
-import { listNetwork } from '@/api/tinc/network'
-import { getSingleNetworkMonitor } from '@/api/monitor/networkMonitor'
-
-export default {
-  components: {
-    LineChart,
-    BarChart
-  },
-  data() {
-    return {
-      loading: false,
-      // 服务器列表
-      servers: [],
-      // 内网列表
-      networks: [],
-      // 选中的服务器和内网
-      selectedServer: '',
-      selectedNetworkId: '',
-      selectedNetwork: false,
-      selectedNetworkName: '',
-      
-      // 网络在线状态
-      isOnline: true,
-      
-      // 监控指标数据
-      responseTime: { value: 0, progress: 0, avg: 0, max: 0, min: 0 },
-      healthScore: { value: 0, progress: 0, network: 0, test: 0, security: 0 },
-      traffic: { value: 0, progress: 0, upload: 0, total: 0, bandwidth: 0 },
-      nodeRate: { value: 0, progress: 0, online: 0, offline: 0, total: 0 },
-      
-      // 图表数据
-      interruptEventData: {
-        expectedData: [],
-        actualData: []
-      }
-    }
-  },
-  computed: {
-    statusTagType() {
-      return this.isOnline ? 'success' : 'danger'
-    },
-    statusLabel() {
-      return this.isOnline ? '在线' : '离线'
-    }
-  },
-  created() {
-    // 页面加载时获取服务器列表
-    this.getServerOptions();
-  },
-  methods: {
-    /** 获取服务器列表 */
-    getServerOptions() {
-      listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
-        this.servers = response.rows.map(server => ({
-          value: server.serverName,
-          label: server.serverName
-        }));
-      })
-    },
-
-    /** 根据服务器获取内网列表 */
-    getNetworksByServer(serverName) {
-      listNetwork({ serverName: serverName }).then(response => {
-        this.networks = response.rows.map(network => ({
-          value: network.id,
-          label: network.networkName
-        }));
-      })
-    },
-    
-    /** 处理服务器选择变化 */
-    handleServerChange(serverName) {
-      if (serverName) {
-        this.getNetworksByServer(serverName);
-      } else {
-        this.networks = [];
-      }
-      this.selectedNetworkId = '';
-    },
-    
-    /** 确认选择 */
-    confirmSelection() {
-      if (!this.selectedServer || !this.selectedNetworkId) {
-        return;
-      }
-      const network = this.networks.find(n => n.value === this.selectedNetworkId);
-      if (network) {
-        this.selectedNetworkName = network.label;
-        this.selectedNetwork = true;
-        this.getMonitorData();
-      }
-    },
-
-    /** 获取实时监控数据 */
-    getMonitorData() {
-      this.loading = true;
-      getSingleNetworkMonitor(this.selectedNetworkId).then(response => {
-        if (response.data) {
-          const data = response.data;
-          this.isOnline = data.isOnline;
-          this.responseTime = data.responseTime;
-          this.healthScore = data.healthScore;
-          this.traffic = data.traffic;
-          this.nodeRate = data.nodeRate;
-          this.interruptEventData = data.interruptEventData;
-          // 注意：BarChart 的更新可能需要通过 ref 调用其内部方法，视组件实现而定
-        }
-        this.loading = false;
-      }).catch(() => {
-        this.loading = false;
-        this.simulateMonitorData();
-      });
-    },
-    
-    /** 模拟监控数据 */
-    simulateMonitorData() {
-      this.isOnline = true;
-      this.responseTime = { value: 69, progress: 69, avg: 43, max: 200, min: 43 };
-      this.healthScore = { value: 100, progress: 100, network: 63, test: 100, security: 5 };
-      this.traffic = { value: 71, progress: 71, upload: 1628.8, total: 2815.0, bandwidth: 10000 };
-      this.nodeRate = { value: 0, progress: 0, online: 0, offline: 6, total: 6 };
-      this.interruptEventData = {
-        expectedData: [],
-        actualData: [0, 0, 0, 0, 0, 0, 0]
-      };
-    },
-    
-    /** 重置选择 */
-    resetSelection() {
-      this.selectedServer = '';
-      this.selectedNetworkId = '';
-      this.selectedNetwork = false;
-      this.selectedNetworkName = '';
-      this.networks = [];
-    }
-  }
-}
-</script>
-
-<style lang="scss" scoped>
-.single-network-control {
-  padding: 20px;
-}
-
-.network-select-container {
-  max-width: 600px;
-  margin: 0 auto;
-  text-align: center;
-  padding: 20px;
-}
-
-.network-select-container h3 {
-  margin-bottom: 30px;
-  color: #333;
-}
-
-.network-select-form {
-  justify-content: center;
-}
-
-/* 网络信息区域 */
-.network-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  padding: 10px 0;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-/* 监控卡片样式 */
-.monitor-card {
-  height: 100%;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  margin-top: 4px;
   
   .card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-bottom: 10px;
-    margin-bottom: 15px;
-    border-bottom: 1px solid #f0f0f0;
-    
-    h4 {
-      margin: 0;
-      font-size: 16px;
-      color: #333;
+
+    .title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #0f172a;
     }
-  }
-  
-  .card-content {
-    padding: 10px 0;
-  }
-}
-
-/* 圆形图表样式 */
-.circle-chart {
-  position: relative;
-  width: 100px;
-  height: 100px;
-  margin: 0 auto 15px;
-}
-
-.circle-bg {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background-color: #f0f0f0;
-}
-
-.circle-progress {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: conic-gradient(
-    #409eff var(--progress),
-    transparent 0%
-  );
-  mask-image: radial-gradient(circle at center, transparent 60%, black 60%);
-  -webkit-mask-image: radial-gradient(circle at center, transparent 60%, black 60%);
-}
-
-.circle-progress.health-score {
-  background: conic-gradient(
-    #67c23a var(--progress),
-    transparent 0%
-  );
-}
-
-.circle-progress.traffic {
-  background: conic-gradient(
-    #e6a23c var(--progress),
-    transparent 0%
-  );
-}
-
-.circle-progress.node-rate {
-  background: conic-gradient(
-    #f56c6c var(--progress),
-    transparent 0%
-  );
-}
-
-.circle-text {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  font-size: 24px;
-  font-weight: bold;
-  color: #333;
-}
-
-/* 监控详情样式 */
-.monitor-details {
-  margin-top: 15px;
-}
-
-.detail-item {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 5px;
-  font-size: 14px;
-}
-
-.detail-label {
-  color: #666;
-}
-
-.detail-value {
-  color: #333;
-  font-weight: bold;
-}
-
-.detail-value.warning {
-  color: #e6a23c;
-}
-
-.detail-value.success {
-  color: #67c23a;
-}
-
-.detail-value.danger {
-  color: #f56c6c;
-}
-
-/* 图表卡片样式 */
-.chart-card {
-  height: 100%;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-  
-  .card-header {
-    padding-bottom: 10px;
-    margin-bottom: 15px;
-    border-bottom: 1px solid #f0f0f0;
-    
-    h4 {
-      margin: 0;
-      font-size: 16px;
-      color: #333;
-    }
-  }
-  
-  .card-content {
-    padding: 10px 0;
-  }
-  
-  .chart-container {
-    height: 250px;
   }
 }
 </style>
