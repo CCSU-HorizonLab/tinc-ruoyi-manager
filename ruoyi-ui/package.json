@@ -8,7 +8,9 @@
     "dev": "vue-cli-service serve",
     "build:prod": "vue-cli-service build",
     "build:stage": "vue-cli-service build --mode staging",
+    "test": "node --test tests/stable-id-contract.test.cjs tests/aiops-contract.test.cjs",
     "test:stable-id": "node --test tests/stable-id-contract.test.cjs",
+    "test:aiops": "node --test tests/aiops-contract.test.cjs",
     "preview": "node build/index.js --preview"
   },
   "keywords": [
