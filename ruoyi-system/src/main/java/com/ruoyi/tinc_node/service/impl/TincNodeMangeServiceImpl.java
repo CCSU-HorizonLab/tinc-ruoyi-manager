@@ -3,8 +3,10 @@ package com.ruoyi.tinc_node.service.impl;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import java.security.SecureRandom;
 import com.ruoyi.common.utils.DateUtils;
-import com.ruoyi.common.tinc.access.AccessPeerSpec;
+import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.common.security.TincNodePasswordCodec;
 import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.mapper.TincNetworkMangeMapper;
@@ -49,6 +51,10 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     private static final String CLIENT_REVOKED_TOKEN_PREFIX = "tinc:client:revoked-token:";
     private static final int REVOKED_TOKEN_TOMBSTONE_HOURS = 24;
 
+    private static final String ACCESS_CODE_CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final int MAX_GENERATE_RETRIES = 10;
+
     @Override
     public TincNodeMange selectTincNodeMangeById(Long id) {
         return tincNodeMangeMapper.selectTincNodeMangeById(id);
@@ -62,6 +68,66 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     @Override
     public List<TincNodeMange> selectByNodeNameExact(String nodeName) {
         return tincNodeMangeMapper.selectByNodeNameExact(nodeName);
+    }
+
+    @Override
+    public TincNodeMange selectByAccessCode(String accessCode) {
+        if (StringUtils.isEmpty(accessCode)) {
+            return null;
+        }
+        return tincNodeMangeMapper.selectByAccessCode(accessCode.trim().toUpperCase());
+    }
+
+    @Override
+    public boolean verifyClientPassword(TincNodeMange node, String rawPassword) {
+        if (node == null || node.getId() == null
+                || !TincNodePasswordCodec.matches(rawPassword, node.getPassword())) {
+            return false;
+        }
+        if (!TincNodePasswordCodec.isEncoded(node.getPassword())) {
+            // A concurrent reset must not be overwritten by the compatibility upgrade.
+            return tincNodeMangeMapper.upgradeLegacyPassword(node.getId(),
+                    TincNodePasswordCodec.legacyFingerprint(node.getPassword()),
+                    TincNodePasswordCodec.encode(rawPassword)) == 1;
+        }
+        return true;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public String rotateAccessCode(Long nodeId) {
+        if (nodeId == null) {
+            throw new IllegalArgumentException("节点 ID 不能为空");
+        }
+        TincNodeMange node = tincNodeMangeMapper.selectTincNodeMangeById(nodeId);
+        if (node == null) {
+            throw new IllegalArgumentException("节点不存在: id=" + nodeId);
+        }
+        String newCode = generateUniqueAccessCode();
+        if (tincNodeMangeMapper.updateAccessCode(nodeId, newCode, DateUtils.getNowDate()) != 1) {
+            throw new IllegalStateException("接入码轮换失败，节点状态已变化");
+        }
+        revokeClientTokens(nodeId);
+        log.info("节点接入码已轮换: nodeId={}, nodeName={}", nodeId, node.getNodeName());
+        return newCode;
+    }
+
+    public String generateUniqueAccessCode() {
+        for (int retry = 0; retry < MAX_GENERATE_RETRIES; retry++) {
+            StringBuilder sb = new StringBuilder("TL-");
+            for (int i = 0; i < 4; i++) {
+                sb.append(ACCESS_CODE_CHARS.charAt(SECURE_RANDOM.nextInt(ACCESS_CODE_CHARS.length())));
+            }
+            sb.append('-');
+            for (int i = 0; i < 4; i++) {
+                sb.append(ACCESS_CODE_CHARS.charAt(SECURE_RANDOM.nextInt(ACCESS_CODE_CHARS.length())));
+            }
+            String candidate = sb.toString();
+            if (tincNodeMangeMapper.countByAccessCode(candidate, null) == 0) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException("无法生成唯一的节点接入码，请稍后重试");
     }
 
     /**
@@ -78,29 +144,26 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         tincNodeMange.setNetworkIp(TincModelValidator.requireNodeIp(
                 tincNodeMange.getNetworkIp(), network.getSegment()));
         validateNodeUniqueness(tincNodeMange);
+
+        tincNodeMange.setPassword(TincNodePasswordCodec.encode(tincNodeMange.getPassword()));
+
+        if (StringUtils.isEmpty(tincNodeMange.getAccessCode())) {
+            tincNodeMange.setAccessCode(generateUniqueAccessCode());
+        } else {
+            String normalized = tincNodeMange.getAccessCode().trim().toUpperCase();
+            if (tincNodeMangeMapper.countByAccessCode(normalized, null) > 0) {
+                throw new IllegalStateException("TINC_NODE_ACCESS_CODE_CONFLICT: 接入码已存在，必须全局唯一");
+            }
+            tincNodeMange.setAccessCode(normalized);
+        }
+
         tincNodeMange.setCreateTime(DateUtils.getNowDate());
         int rows = tincNodeMangeMapper.insertTincNodeMange(tincNodeMange);
-        log.info("节点 [{}] 基础信息创建成功，等待客户端上传公钥...", tincNodeMange.getNodeName());
+        log.info("节点 [{}] 基础信息创建成功，已分配接入码，等待客户端上传公钥...", tincNodeMange.getNodeName());
         return rows;
     }
 
-    /**
-     * 修改 Tinc 节点（兼容两种场景）：
-     *
-     * <p>场景 A — 客户端手动上传公钥：</p>
-     * <ol>
-     *   <li>前端把脏公钥文本塞进 password 字段</li>
-     *   <li>正则抠出纯净 PEM 块</li>
-     *   <li>覆写本地 hosts 文件副本</li>
-     *   <li>★ 推送到远程 Tinc VPN 网关</li>
-     *   <li>★ 远程重载 tincd 使新节点公钥生效</li>
-     * </ol>
-     *
-     * <p>场景 B — 普通字段更新（改状态/改备注等）：</p>
-     * <ul>
-     *   <li>password 字段不包含 PEM 公钥标记，直接透传给 Mapper</li>
-     * </ul>
-     */
+    /** Update metadata and rotate the login credential only when a new password is supplied. */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int updateTincNodeMange(TincNodeMange tincNodeMange) {
@@ -114,49 +177,24 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         tincNodeMange.setNetworkId(network.getId());
         tincNodeMange.setNetworkName(network.getNetworkName());
         tincNodeMange.setServerName(server.getServerName());
+        tincNodeMange.setAccessCode(oldNode.getAccessCode());
 
         if (tincNodeMange.getNetworkIp() != null && !tincNodeMange.getNetworkIp().isEmpty()) {
             tincNodeMange.setNetworkIp(TincModelValidator.requireNodeIp(
                     tincNodeMange.getNetworkIp(), network.getSegment()));
             validateNodeUniqueness(tincNodeMange);
         }
-        String dirtyText = tincNodeMange.getPassword();
-
-        // 判断是否为公钥上传场景：password 字段里是否包含 PEM 公钥头尾
-        if (dirtyText != null && dirtyText.contains("-----BEGIN") && dirtyText.contains("PUBLIC KEY-----")) {
-
-            // 1. 查出旧节点信息（获取 netName, nodeName, 旧的 IP）
-            String netName  = network.getNetworkName();
-            String nodeName = oldNode.getNodeName();
-            String rawIp    = oldNode.getNetworkIp();
-            String nodeIp   = (rawIp != null && rawIp.contains("/")) ? rawIp : rawIp + "/32";
-
-            // 2. 正则精准抠出纯净公钥块
-            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                    "(?s)(-----BEGIN(?: RSA)? PUBLIC KEY-----.*?-----END(?: RSA)? PUBLIC KEY-----)");
-            java.util.regex.Matcher matcher = pattern.matcher(dirtyText);
-
-            if (!matcher.find()) {
-                throw new RuntimeException("未识别到有效的公钥格式，请检查上传内容");
-            }
-            String cleanPubKey = matcher.group(0);
-
-            AccessPeerSpec peer = new AccessPeerSpec();
-            peer.setNodeName(nodeName);
-            peer.setSubnet(nodeIp);
-            peer.setPublicKey(cleanPubKey);
-            tincRuntimeRouter.upsertPeer(server, netName, peer);
-
-            // 5. 仅更新业务状态，绝不将公钥写入数据库
+        boolean passwordChanged = !StringUtils.isEmpty(tincNodeMange.getPassword());
+        if (!passwordChanged) {
             tincNodeMange.setPassword(null);
-            tincNodeMange.setStatus("已配置");
-            int rows = tincNodeMangeMapper.updateTincNodeMange(tincNodeMange);
-        log.info("节点 [{}] 公钥已推送至对应网关的 hosts 目录", nodeName);
-            return rows;
+        } else {
+            tincNodeMange.setPassword(TincNodePasswordCodec.encode(tincNodeMange.getPassword()));
         }
-
-        // 场景 B：普通更新，直接透传
-        return tincNodeMangeMapper.updateTincNodeMange(tincNodeMange);
+        int updated = tincNodeMangeMapper.updateTincNodeMange(tincNodeMange);
+        if (updated > 0 && passwordChanged) {
+            revokeClientTokens(tincNodeMange.getId());
+        }
+        return updated;
     }
 
     @Override
@@ -262,6 +300,10 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         }
         if (update.getNetworkName() != null && !oldNode.getNetworkName().equals(update.getNetworkName())) {
             throw new IllegalStateException("TINC_NODE_MOVE_FORBIDDEN: 节点不能通过普通修改迁移网络");
+        }
+        if (update.getAccessCode() != null && oldNode.getAccessCode() != null
+                && !oldNode.getAccessCode().equalsIgnoreCase(update.getAccessCode().trim())) {
+            throw new IllegalStateException("TINC_NODE_ACCESS_CODE_CHANGE_FORBIDDEN: 节点接入码不能通过普通修改变更");
         }
     }
 

@@ -4,6 +4,7 @@ import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import com.ruoyi.common.annotation.Excel;
 import com.ruoyi.common.core.domain.BaseEntity;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * Tinc节点集群管理对象 tinc_node_mange
@@ -22,6 +23,10 @@ public class TincNodeMange extends BaseEntity
     /** 稳定的所属网络主键；networkName 仅保留作展示与兼容 */
     private Long networkId;
 
+    /** 节点全局唯一接入码（登录前唯一定位 Node） */
+    @Excel(name = "接入码")
+    private String accessCode;
+
     /** 用户 */
     @Excel(name = "用户")
     private String userName;
@@ -39,6 +44,7 @@ public class TincNodeMange extends BaseEntity
     private String networkName;
 
     /** 密码 */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String password;
 
     /** 节点名称 */
@@ -78,6 +84,16 @@ public class TincNodeMange extends BaseEntity
     public Long getNetworkId()
     {
         return networkId;
+    }
+
+    public void setAccessCode(String accessCode)
+    {
+        this.accessCode = accessCode;
+    }
+
+    public String getAccessCode()
+    {
+        return accessCode;
     }
 
     public void setUserName(String userName)
@@ -185,11 +201,12 @@ public class TincNodeMange extends BaseEntity
         return new ToStringBuilder(this,ToStringStyle.MULTI_LINE_STYLE)
             .append("id", getId())
             .append("networkId", getNetworkId())
+            .append("accessCode", getAccessCode() != null ? "******" : null)
             .append("userName", getUserName())
             .append("tableId", getTableId())
             .append("serverName", getServerName())
             .append("networkName", getNetworkName())
-            .append("password", getPassword())
+            .append("password", getPassword() != null ? "******" : null)
             .append("nodeName", getNodeName())
             .append("networkIp", getNetworkIp())
             .append("explanation", getExplanation())

@@ -70,6 +70,14 @@
             @keyup.enter.native="handleQuery"
           />
         </el-form-item>
+        <el-form-item label="接入码" prop="accessCode">
+          <el-input
+            v-model="queryParams.accessCode"
+            placeholder="请输入接入码"
+            clearable
+            @keyup.enter.native="handleQuery"
+          />
+        </el-form-item>
         <el-form-item label="内网IP" prop="networkIp">
           <el-input
             v-model="queryParams.networkIp"
@@ -146,6 +154,21 @@
               <i class="el-icon-cpu node-cell-icon"></i>
               <span class="node-name-text">{{ scope.row.nodeName }}</span>
             </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="接入码" align="center" prop="accessCode" min-width="160">
+          <template slot-scope="scope">
+            <el-tag
+              v-if="scope.row.accessCode"
+              size="small"
+              type="info"
+              style="cursor: pointer; font-family: monospace; font-size: 13px;"
+              title="点击复制接入码"
+              @click="handleCopyAccessCode(scope.row.accessCode)"
+            >
+              <i class="el-icon-key"></i> {{ scope.row.accessCode }}
+            </el-tag>
+            <span v-else style="color: #909399;">-</span>
           </template>
         </el-table-column>
         <el-table-column label="所属网络 / 网关" align="left" min-width="180">
@@ -256,14 +279,19 @@
             <el-option v-for="network in networkOptions" :key="network.id" :label="network.networkName" :value="network.id"></el-option>
           </el-select>
         </el-form-item>
+        <el-form-item v-if="form.id != null" label="接入码" prop="accessCode">
+          <el-input v-model="form.accessCode" disabled style="font-family: monospace;">
+            <el-button slot="append" icon="el-icon-document-copy" @click="handleCopyAccessCode(form.accessCode)">复制</el-button>
+          </el-input>
+        </el-form-item>
         <el-form-item label="节点名称" prop="nodeName">
           <el-input v-model="form.nodeName" placeholder="请输入节点名称" :disabled="form.id != null" />
         </el-form-item>
         <el-form-item label="内网IP" prop="networkIp">
           <el-input v-model="form.networkIp" placeholder="请输入内网IP (如 10.0.11.2)" />
         </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" show-password placeholder="请输入安全密码" />
+        <el-form-item label="登录密码" prop="password">
+          <el-input v-model="form.password" type="password" show-password :placeholder="form.id == null ? '请输入节点登录密码' : '留空表示不修改密码'" />
         </el-form-item>
         <el-form-item label="备注" prop="explanation">
           <el-input v-model="form.explanation" type="textarea" :rows="2" placeholder="请输入备注说明" />
@@ -298,6 +326,7 @@ export default {
       queryParams: {
         pageNum: 1,
         pageSize: 10,
+        accessCode: null,
         userName: null,
         tableId: null,
         serverName: null,
@@ -322,7 +351,10 @@ export default {
           { required: true, message: "所属内网不能为空", trigger: "blur" }
         ],
         password: [
-          { required: true, message: "密码不能为空", trigger: "blur" }
+          { validator: (rule, value, callback) => {
+            if (this.form.id == null && !value) callback(new Error("密码不能为空"))
+            else callback()
+          }, trigger: "blur" }
         ],
         nodeName: [
           { required: true, message: "节点名称不能为空", trigger: "blur" }
@@ -370,6 +402,7 @@ export default {
       this.form = {
         id: null,
         networkId: null,
+        accessCode: null,
         selectedServerId: null,
         userName: null,
         tableId: null,
@@ -410,6 +443,7 @@ export default {
       const id = row.id || this.ids
       getNode(id).then(response => {
         this.form = response.data
+        this.$set(this.form, 'password', null)
         const server = this.serverOptions.find(s => s.serverName === this.form.serverName)
         this.$set(this.form, 'selectedServerId', server ? server.id : null)
         this.onServerChange(this.form.selectedServerId, false)
@@ -437,7 +471,15 @@ export default {
             })
           } else {
             addNode(this.form).then(response => {
-              this.$modal.msgSuccess("新增成功")
+              if (response.accessCode) {
+                this.$alert(
+                  `节点创建成功！接入码：${response.accessCode}。客户端使用接入码和设置的密码登录，请妥善保管并下发给用户。`,
+                  '节点接入码生成成功',
+                  { type: 'success' }
+                );
+              } else {
+                this.$modal.msgSuccess("新增成功")
+              }
               this.open = false
               this.getList()
             }).finally(() => {
@@ -448,6 +490,27 @@ export default {
           this.isSubmitting = false;
         }
       })
+    },
+    handleCopyAccessCode(code) {
+      if (!code) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(() => {
+          this.$modal.msgSuccess("接入码已复制到剪贴板: " + code);
+        }).catch(() => {
+          this.copyFallback(code);
+        });
+      } else {
+        this.copyFallback(code);
+      }
+    },
+    copyFallback(text) {
+      const input = document.createElement("input");
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      document.body.removeChild(input);
+      this.$modal.msgSuccess("接入码已复制到剪贴板: " + text);
     },
     handleDelete(row) {
       const ids = row.id || this.ids

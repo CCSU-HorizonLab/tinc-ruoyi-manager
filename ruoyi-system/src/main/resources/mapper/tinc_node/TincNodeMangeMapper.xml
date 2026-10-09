@@ -7,6 +7,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <resultMap type="TincNodeMange" id="TincNodeMangeResult">
         <result property="id"    column="id"    />
         <result property="networkId"    column="network_id"    />
+        <result property="accessCode"   column="access_code"   />
         <result property="userName"    column="user_name"    />
         <result property="tableId"    column="device_id"    />
         <result property="serverName"    column="server_name"    />
@@ -24,7 +25,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </resultMap>
 
     <sql id="selectTincNodeMangeVo">
-        select id, network_id, user_name, device_id, server_name, network_name, password, node_name, network_ip, remark, create_time, node_status, status, create_by, update_by, update_time from tinc_node
+        select id, network_id, access_code, user_name, device_id, server_name, network_name, password, node_name, network_ip, remark, create_time, node_status, status, create_by, update_by, update_time from tinc_node
     </sql>
 
     <select id="selectTincNodeMangeList" parameterType="TincNodeMange" resultMap="TincNodeMangeResult">
@@ -33,6 +34,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="userName != null  and userName != ''"> and user_name like concat('%', #{userName}, '%')</if>
             <if test="tableId != null  and tableId != ''"> and device_id = #{tableId}</if>
             <if test="networkId != null"> and network_id = #{networkId}</if>
+            <if test="accessCode != null and accessCode != ''"> and access_code = #{accessCode}</if>
             <if test="serverName != null  and serverName != ''"> and server_name like concat('%', #{serverName}, '%')</if>
             <if test="networkName != null  and networkName != ''"> and network_name like concat('%', #{networkName}, '%')</if>
             <if test="nodeName != null  and nodeName != ''"> and node_name like concat('%', #{nodeName}, '%')</if>
@@ -41,6 +43,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="status != null  and status != ''"> and status = #{status}</if>
         </where>
     </select>
+
+    <select id="selectByAccessCode" parameterType="String" resultMap="TincNodeMangeResult">
+        <include refid="selectTincNodeMangeVo"/>
+        where access_code = #{accessCode}
+    </select>
+
+    <select id="countByAccessCode" resultType="int">
+        select count(1) from tinc_node where access_code = #{accessCode}
+        <if test="excludeId != null">and id != #{excludeId}</if>
+    </select>
+
+    <update id="updateAccessCode">
+        update tinc_node set access_code = #{accessCode}, update_time = #{updateTime} where id = #{id}
+    </update>
 
     <select id="selectByNodeNameExact" parameterType="String" resultMap="TincNodeMangeResult">
         <include refid="selectTincNodeMangeVo"/>
@@ -76,6 +92,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <trim prefix="(" suffix=")" suffixOverrides=",">
             <if test="userName != null and userName != ''">user_name,</if>
             <if test="networkId != null">network_id,</if>
+            <if test="accessCode != null and accessCode != ''">access_code,</if>
             <if test="tableId != null and tableId != ''">device_id,</if>
             <if test="serverName != null and serverName != ''">server_name,</if>
             <if test="networkName != null and networkName != ''">network_name,</if>
@@ -91,6 +108,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="userName != null and userName != ''">#{userName},</if>
             <if test="networkId != null">#{networkId},</if>
+            <if test="accessCode != null and accessCode != ''">#{accessCode},</if>
             <if test="tableId != null and tableId != ''">#{tableId},</if>
             <if test="serverName != null and serverName != ''">#{serverName},</if>
             <if test="networkName != null and networkName != ''">#{networkName},</if>
@@ -124,6 +142,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="updateTime != null">update_time = #{updateTime},</if>
         </trim>
         where id = #{id}
+    </update>
+
+    <update id="upgradeLegacyPassword">
+        update tinc_node set password = #{encodedPassword}
+        where id = #{id} and SHA2(password, 256) = #{expectedFingerprint}
     </update>
 
     <delete id="deleteTincNodeMangeById" parameterType="Long">

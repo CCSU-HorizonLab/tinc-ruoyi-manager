@@ -13,7 +13,7 @@ public interface ITincNodeMangeService
 {
     /**
      * 查询Tinc节点集群管理
-     * 
+     *
      * @param id Tinc节点集群管理主键
      * @return Tinc节点集群管理
      */
@@ -21,7 +21,7 @@ public interface ITincNodeMangeService
 
     /**
      * 查询Tinc节点集群管理列表
-     * 
+     *
      * @param tincNodeMange Tinc节点集群管理
      * @return Tinc节点集群管理集合
      */
@@ -29,6 +29,25 @@ public interface ITincNodeMangeService
 
     /** 客户端登录兼容入口：数据库精确匹配节点名，允许跨网络同名。 */
     public List<TincNodeMange> selectByNodeNameExact(String nodeName);
+
+    /**
+     * 根据全局唯一接入码精确查询节点（登录前唯一定位 Node）
+     *
+     * @param accessCode 节点接入码
+     * @return 节点信息（未找到返回 null）
+     */
+    public TincNodeMange selectByAccessCode(String accessCode);
+
+    /**
+     * 轮换指定节点的接入码（生成新唯一接入码，旧码立即失效；不影响 nodeId/networkId/KeyPair/Runtime）
+     *
+     * @param nodeId 节点 ID
+     * @return 新生成的接入码
+     */
+    public String rotateAccessCode(Long nodeId);
+
+    /** Authenticate a node and upgrade unchanged legacy plaintext on success. */
+    public boolean verifyClientPassword(TincNodeMange node, String rawPassword);
 
     /**
      * 新增Tinc节点集群管理

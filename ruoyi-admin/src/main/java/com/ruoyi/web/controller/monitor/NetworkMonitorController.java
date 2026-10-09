@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
@@ -25,6 +26,7 @@ import com.ruoyi.tinc_node.service.ITincNodeMangeService;
  */
 @RestController
 @RequestMapping("/monitor/network")
+@PreAuthorize("@ss.hasPermi('TincNetworkMange:TincNetworkMange:list')")
 public class NetworkMonitorController extends BaseController
 {
     @Autowired

@@ -53,3 +53,12 @@ test('application routes use the stable-ID management pages', () => {
   assert.match(router, /path:\s*'\/tinc-server'[\s\S]*import\('@\/views\/tinc\/server\/index'\)/)
   assert.match(router, /path:\s*'\/tinc-node'[\s\S]*import\('@\/views\/tinc\/node\/index'\)/)
 })
+
+test('node edit does not require re-submitting a stored login password', () => {
+  const view = read('src/views/tinc/node/index.vue')
+
+  assert.match(view, /form\.id == null && !value/)
+  assert.match(view, /this\.\$set\(this\.form, 'password', null\)/)
+  assert.match(view, /留空表示不修改密码/)
+  assert.doesNotMatch(view, /dangerouslyUseHTMLString/)
+})

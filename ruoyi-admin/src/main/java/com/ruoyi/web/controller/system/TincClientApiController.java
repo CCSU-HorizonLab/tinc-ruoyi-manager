@@ -80,6 +80,10 @@ public class TincClientApiController {
 
     /**
      * 客户端登录验证，获取内网分配的虚拟 IP 和网络名称
+     *
+     * 支持两种模式：
+     * 1. 推荐新模式：accessCode + password（全局唯一定位 Node）
+     * 2. 过渡兼容模式：sid + password（已废弃；仅当 nodeName 全局唯一候选时允许登录；同名 > 1 返回 CLIENT_LEGACY_LOGIN_AMBIGUOUS）
      */
     @PostMapping("/login")
     public JSONObject login(@RequestBody Map<String, String> params,
@@ -87,47 +91,122 @@ public class TincClientApiController {
         log.info("========== 客户端登录接口被调用 ==========");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
 
-        String username = params.get("sid");
+        String accessCode = params.get("accessCode");
+        if (StringUtils.isEmpty(accessCode)) {
+            accessCode = params.get("access_code");
+        }
+        String sid = params.get("sid");
         String password = params.get("password");
 
-        log.info("客户端登录请求: sid={}, 密码长度={}", username, password != null ? password.length() : 0);
+        boolean hasAccessCode = StringUtils.isNotEmpty(accessCode);
+        boolean hasSid = StringUtils.isNotEmpty(sid);
+
+        if (hasAccessCode) {
+            log.info("客户端登录请求 [AccessCode 模式]");
+        } else {
+            log.warn("客户端登录请求 [已弃用的 Legacy SID 模式]: sid={}, 密码长度={}",
+                    sid, password != null ? password.length() : 0);
+        }
 
         JSONObject result = new JSONObject();
 
         try {
-            if (!isValidTincIdentifier(username) || StringUtils.isEmpty(password)) {
-                log.warn("用户名或密码为空，登录失败");
+            if (StringUtils.isEmpty(password)) {
+                log.warn("客户端登录失败: 密码为空");
                 result.put("status", 0);
-                result.put("msg", "sid 或密码无效");
+                result.put("code", "CLIENT_CREDENTIAL_INVALID");
+                result.put("msg", "密码不能为空");
                 return result;
             }
 
-            TincNodeMange node = findPasswordBoundNode(username, password);
-            if (node == null) {
-                log.warn("客户端登录认证失败: sid={}", username);
+            TincNodeMange node = null;
+
+            if (hasAccessCode) {
+                // 1. 新模式：通过 accessCode 全局精确定位 0/1 个 Node
+                String normalizedCode = accessCode.trim().toUpperCase();
+                node = nodeMangeService.selectByAccessCode(normalizedCode);
+                if (node == null) {
+                    log.warn("客户端接入码登录失败: 接入码不存在");
+                    result.put("status", 0);
+                    result.put("code", "CLIENT_CREDENTIAL_INVALID");
+                    result.put("msg", "接入码或密码无效");
+                    return result;
+                }
+
+                // 2. 校验密码（密码仅负责认证，绝不参与资源定位）
+                if (!nodeMangeService.verifyClientPassword(node, password)) {
+                    log.warn("客户端接入码登录认证失败: 密码错误, nodeId={}", node.getId());
+                    result.put("status", 0);
+                    result.put("code", "CLIENT_CREDENTIAL_INVALID");
+                    result.put("msg", "接入码或密码无效");
+                    return result;
+                }
+            } else if (hasSid) {
+                // 2. 旧模式兼容（严格限制）
+                if (!isValidTincIdentifier(sid)) {
+                    log.warn("旧版 sid 登录失败: sid 格式不合法, sid={}", sid);
+                    result.put("status", 0);
+                    result.put("code", "CLIENT_SID_INVALID");
+                    result.put("msg", "sid 格式无效");
+                    return result;
+                }
+
+                List<TincNodeMange> candidates = findExactNodes(sid);
+                if (candidates.isEmpty()) {
+                    log.warn("旧版 sid 登录失败: 节点不存在, sid={}", sid);
+                    result.put("status", 0);
+                    result.put("code", "CLIENT_CREDENTIAL_INVALID");
+                    result.put("msg", "sid 或密码无效");
+                    return result;
+                }
+
+                if (candidates.size() > 1) {
+                    log.warn("旧版 sid 登录失败 [歧义]: 检测到 {} 个同名节点, sid={}", candidates.size(), sid);
+                    result.put("status", 0);
+                    result.put("code", "CLIENT_LEGACY_LOGIN_AMBIGUOUS");
+                    result.put("msg", "检测到多个同名节点，旧版登录无法唯一定位，请升级客户端并使用接入码登录");
+                    return result;
+                }
+
+                // 全局仅有 1 个候选节点时允许兼容登录
+                node = candidates.get(0);
+                if (!nodeMangeService.verifyClientPassword(node, password)) {
+                    log.warn("旧版 sid 登录认证失败: 密码错误, sid={}, nodeId={}", sid, node.getId());
+                    result.put("status", 0);
+                    result.put("code", "CLIENT_CREDENTIAL_INVALID");
+                    result.put("msg", "sid 或密码无效");
+                    return result;
+                }
+            } else {
+                log.warn("客户端登录失败: 未提供 accessCode 或 sid");
                 result.put("status", 0);
-                result.put("msg", "sid 或密码无效");
+                result.put("code", "CLIENT_CREDENTIAL_INVALID");
+                result.put("msg", "缺少接入码或节点标识");
                 return result;
             }
 
+            // 验证节点网络配置
             if (!isValidIpv4(node.getNetworkIp())) {
-                log.warn("节点未配置有效的 IPv4 地址: sid={}", username);
+                log.warn("节点未配置有效的 IPv4 地址: nodeId={}, nodeName={}", node.getId(), node.getNodeName());
                 result.put("status", 0);
+                result.put("code", "CLIENT_NETWORK_IP_INVALID");
                 result.put("msg", "节点网络配置不可用");
                 return result;
             }
 
             TincNetworkMange network = resolveNetworkForNode(node);
             if (network == null || !isValidTincIdentifier(network.getNetworkName())) {
-                log.warn("网络不存在: {}", node.getNetworkName());
+                log.warn("网络不存在或名称无效: nodeId={}, networkId={}", node.getId(), node.getNetworkId());
                 result.put("status", 0);
+                result.put("code", "CLIENT_NETWORK_NOT_FOUND");
                 result.put("msg", "节点网络配置不可用");
                 return result;
             }
 
             String clientToken = createClientToken(node);
-            result.put("sid", username);
             result.put("status", 1);
+            result.put("sid", node.getNodeName());
+            result.put("access_code", node.getAccessCode());
             result.put("token", clientToken);
             result.put("net_name", network.getNetworkName());
             result.put("network_id", network.getId());
@@ -135,10 +214,11 @@ public class TincClientApiController {
             result.put("msg", "登录成功");
             result.put("node_ip", node.getNetworkIp());
 
-            log.info("登录成功，用户: {}, 网络: {}", username, network.getNetworkName());
+            log.info("客户端登录成功: nodeId={}, networkId={}", node.getId(), network.getId());
         } catch (Exception e) {
             log.error("登录接口异常，错误类型={}", e.getClass().getSimpleName());
             result.put("status", 0);
+            result.put("code", "SYSTEM_ERROR");
             result.put("msg", "系统暂时不可用");
         }
 
@@ -659,19 +739,6 @@ public class TincClientApiController {
     private List<TincNodeMange> findExactNodes(String nodeName) {
         List<TincNodeMange> matches = nodeMangeService.selectByNodeNameExact(nodeName);
         return matches == null ? java.util.Collections.emptyList() : matches;
-    }
-
-    private TincNodeMange findPasswordBoundNode(String nodeName, String password) {
-        TincNodeMange match = null;
-        for (TincNodeMange candidate : findExactNodes(nodeName)) {
-            if (password.equals(candidate.getPassword())) {
-                if (match != null) {
-                    throw new IllegalStateException("sid 与密码匹配到多条节点记录");
-                }
-                match = candidate;
-            }
-        }
-        return match;
     }
 
     private TincNodeMange findTokenBoundNode(List<TincNodeMange> candidates, String token) throws Exception {

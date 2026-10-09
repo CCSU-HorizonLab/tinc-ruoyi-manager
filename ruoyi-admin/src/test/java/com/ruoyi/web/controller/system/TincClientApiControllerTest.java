@@ -12,6 +12,7 @@ import com.ruoyi.tinc.runtime.TincRuntimeRouter;
 import com.ruoyi.common.tinc.access.AccessOperationResult;
 import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 import com.ruoyi.common.utils.RsaUtils;
+import com.ruoyi.common.security.TincNodePasswordCodec;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -26,6 +27,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -47,6 +49,12 @@ class TincClientApiControllerTest {
         ReflectionTestUtils.setField(controller, "redisCache", redisCache);
         ReflectionTestUtils.setField(controller, "mangeServerService", serverService);
         ReflectionTestUtils.setField(controller, "tincRuntimeRouter", runtimeRouter);
+        when(nodeService.verifyClientPassword(any(TincNodeMange.class), anyString()))
+                .thenAnswer(invocation -> {
+                    TincNodeMange node = invocation.getArgument(0);
+                    String raw = invocation.getArgument(1);
+                    return TincNodePasswordCodec.matches(raw, node.getPassword());
+                });
     }
 
     @Test
@@ -126,12 +134,111 @@ class TincClientApiControllerTest {
 
         assertEquals("CLIENT_NODE_REVOKED", result.getString("code"));
         verify(response).setStatus(410);
+    }
+
+    @Test
+    void accessCodeLoginSuccessResolvesNodeDirectlyWithoutNodeNameLookup() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        node.setAccessCode("TL-7K9M-2Q4F");
+        TincNetworkMange network = network(8L, "new_network");
+        when(nodeService.selectByAccessCode("TL-7K9M-2Q4F")).thenReturn(node);
+        when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network);
+
+        JSONObject result = controller.login(accessCodeLoginRequest("TL-7k9m-2q4f", "secret"), response);
+
+        assertEquals(1, result.getIntValue("status"));
+        assertEquals("new_client", result.getString("sid"));
+        assertEquals("TL-7K9M-2Q4F", result.getString("access_code"));
+        assertEquals("new_network", result.getString("net_name"));
+        assertEquals("10.0.11.211", result.getString("node_ip"));
+        assertEquals(5L, result.getLongValue("node_id"));
+        assertEquals(8L, result.getLongValue("network_id"));
+        verify(nodeService).selectByAccessCode("TL-7K9M-2Q4F");
         verify(nodeService, never()).selectByNodeNameExact(anyString());
+        verify(redisCache).setCacheObject(startsWith("tinc:client:token:"), eq("5"), eq(30), any());
+    }
+
+    @Test
+    void accessCodeLoginWithWrongPasswordFailsWithoutGeneratingToken() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        node.setAccessCode("TL-7K9M-2Q4F");
+        when(nodeService.selectByAccessCode("TL-7K9M-2Q4F")).thenReturn(node);
+
+        JSONObject result = controller.login(accessCodeLoginRequest("TL-7K9M-2Q4F", "wrong_pass"), response);
+
+        assertEquals(0, result.getIntValue("status"));
+        assertEquals("CLIENT_CREDENTIAL_INVALID", result.getString("code"));
+        assertEquals("接入码或密码无效", result.getString("msg"));
+        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+    }
+
+    @Test
+    void accessCodeLoginWithNonExistentCodeFails() {
+        when(nodeService.selectByAccessCode("TL-NONO-NONE")).thenReturn(null);
+
+        JSONObject result = controller.login(accessCodeLoginRequest("TL-NONO-NONE", "any_pass"), response);
+
+        assertEquals(0, result.getIntValue("status"));
+        assertEquals("CLIENT_CREDENTIAL_INVALID", result.getString("code"));
+        assertEquals("接入码或密码无效", result.getString("msg"));
+    }
+
+    @Test
+    void crossNetworkSameNameAndSamePasswordCanLoginViaRespectiveAccessCodes() {
+        // Network A (id=10) has node "client_common" (id=101, accessCode="TL-NETA-1111")
+        TincNodeMange nodeA = node(101L, 10L, "client_common", "same_pass", "network_a", "10.0.10.2");
+        nodeA.setAccessCode("TL-NETA-1111");
+        TincNetworkMange netA = network(10L, "network_a");
+
+        // Network B (id=20) has node "client_common" (id=202, accessCode="TL-NETB-2222")
+        TincNodeMange nodeB = node(202L, 20L, "client_common", "same_pass", "network_b", "10.0.20.2");
+        nodeB.setAccessCode("TL-NETB-2222");
+        TincNetworkMange netB = network(20L, "network_b");
+
+        when(nodeService.selectByAccessCode("TL-NETA-1111")).thenReturn(nodeA);
+        when(nodeService.selectByAccessCode("TL-NETB-2222")).thenReturn(nodeB);
+        when(networkService.selectTincNetworkMangeById(10L)).thenReturn(netA);
+        when(networkService.selectTincNetworkMangeById(20L)).thenReturn(netB);
+
+        // Login to Node A
+        JSONObject resultA = controller.login(accessCodeLoginRequest("TL-NETA-1111", "same_pass"), response);
+        assertEquals(1, resultA.getIntValue("status"));
+        assertEquals(101L, resultA.getLongValue("node_id"));
+        assertEquals(10L, resultA.getLongValue("network_id"));
+        assertEquals("network_a", resultA.getString("net_name"));
+
+        // Login to Node B
+        JSONObject resultB = controller.login(accessCodeLoginRequest("TL-NETB-2222", "same_pass"), response);
+        assertEquals(1, resultB.getIntValue("status"));
+        assertEquals(202L, resultB.getLongValue("node_id"));
+        assertEquals(20L, resultB.getLongValue("network_id"));
+        assertEquals("network_b", resultB.getString("net_name"));
+    }
+
+    @Test
+    void legacySidWithAmbiguousCandidatesReturnsClientLegacyLoginAmbiguous() {
+        TincNodeMange nodeA = node(101L, 10L, "client_common", "pass_a", "network_a", "10.0.10.2");
+        TincNodeMange nodeB = node(202L, 20L, "client_common", "pass_b", "network_b", "10.0.20.2");
+        when(nodeService.selectByNodeNameExact("client_common")).thenReturn(java.util.Arrays.asList(nodeA, nodeB));
+
+        JSONObject result = controller.login(loginRequest("client_common", "pass_a"), response);
+
+        assertEquals(0, result.getIntValue("status"));
+        assertEquals("CLIENT_LEGACY_LOGIN_AMBIGUOUS", result.getString("code"));
+        assertTrue(result.getString("msg").contains("接入码"));
+        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
     }
 
     private static Map<String, String> loginRequest(String sid, String password) {
         Map<String, String> request = new HashMap<>();
         request.put("sid", sid);
+        request.put("password", password);
+        return request;
+    }
+
+    private static Map<String, String> accessCodeLoginRequest(String accessCode, String password) {
+        Map<String, String> request = new HashMap<>();
+        request.put("accessCode", accessCode);
         request.put("password", password);
         return request;
     }

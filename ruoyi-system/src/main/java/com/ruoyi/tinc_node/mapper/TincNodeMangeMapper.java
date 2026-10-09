@@ -43,6 +43,29 @@ public interface TincNodeMangeMapper
                                        @Param("excludeId") Long excludeId);
 
     /**
+     * 根据节点接入码精确查询唯一节点（登录身份唯一定位）
+     */
+    public TincNodeMange selectByAccessCode(@Param("accessCode") String accessCode);
+
+    /**
+     * 检查接入码是否在系统中已被占用
+     */
+    public int countByAccessCode(@Param("accessCode") String accessCode,
+                                 @Param("excludeId") Long excludeId);
+
+    /**
+     * 单独轮换节点的接入码
+     */
+    public int updateAccessCode(@Param("id") Long id,
+                                @Param("accessCode") String accessCode,
+                                @Param("updateTime") java.util.Date updateTime);
+
+    /** Upgrade legacy plaintext only if the credential has not changed. */
+    public int upgradeLegacyPassword(@Param("id") Long id,
+                                     @Param("expectedFingerprint") String expectedFingerprint,
+                                     @Param("encodedPassword") String encodedPassword);
+
+    /**
      * 新增Tinc节点集群管理
      * 
      * @param tincNodeMange Tinc节点集群管理

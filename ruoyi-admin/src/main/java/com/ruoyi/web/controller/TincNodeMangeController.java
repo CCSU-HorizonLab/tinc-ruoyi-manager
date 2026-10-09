@@ -81,8 +81,31 @@ public class TincNodeMangeController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestBody TincNodeMange tincNodeMange)
     {
-        tincNodeMange.setCreateBy(getUsername());
-        return toAjax(tincNodeMangeService.insertTincNodeMange(tincNodeMange));
+        try {
+            tincNodeMange.setCreateBy(getUsername());
+        } catch (Exception ignored) {
+        }
+        int rows = tincNodeMangeService.insertTincNodeMange(tincNodeMange);
+        AjaxResult ajax = toAjax(rows);
+        if (rows > 0) {
+            ajax.put("accessCode", tincNodeMange.getAccessCode());
+            ajax.put("nodeId", tincNodeMange.getId());
+        }
+        return ajax;
+    }
+
+    /**
+     * 轮换节点接入码
+     */
+    @PreAuthorize("@ss.hasPermi('node_mange:node_mange:edit')")
+    @Log(title = "Tinc节点集群管理", businessType = BusinessType.UPDATE)
+    @PutMapping("/rotate-access-code/{id}")
+    public AjaxResult rotateAccessCode(@PathVariable("id") Long id)
+    {
+        String newAccessCode = tincNodeMangeService.rotateAccessCode(id);
+        AjaxResult ajax = AjaxResult.success("接入码轮换成功");
+        ajax.put("accessCode", newAccessCode);
+        return ajax;
     }
 
     /**
@@ -93,7 +116,10 @@ public class TincNodeMangeController extends BaseController
     @PutMapping
     public AjaxResult edit(@RequestBody TincNodeMange tincNodeMange)
     {
-        tincNodeMange.setUpdateBy(getUsername());
+        try {
+            tincNodeMange.setUpdateBy(getUsername());
+        } catch (Exception ignored) {
+        }
         return toAjax(tincNodeMangeService.updateTincNodeMange(tincNodeMange));
     }
 
