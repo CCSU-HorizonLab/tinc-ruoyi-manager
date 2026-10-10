@@ -144,6 +144,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where id = #{id}
     </update>
 
+    <update id="markClientConfigured">
+        update tinc_node set status = '已配置' where id = #{id}
+    </update>
+
     <update id="upgradeLegacyPassword">
         update tinc_node set password = #{encodedPassword}
         where id = #{id} and SHA2(password, 256) = #{expectedFingerprint}

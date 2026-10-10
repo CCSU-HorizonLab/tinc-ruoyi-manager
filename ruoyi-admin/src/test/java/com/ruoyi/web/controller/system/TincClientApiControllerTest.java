@@ -6,6 +6,9 @@ import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
 import com.ruoyi.tinc_node.service.ITincNodeMangeService;
+import com.ruoyi.tinc_node.service.impl.TincNodeMangeServiceImpl;
+import com.ruoyi.tinc_node.mapper.TincNodeMangeMapper;
+import com.ruoyi.tinc_network.mapper.TincNetworkMangeMapper;
 import com.ruoyi.tinc_server.service.IMangeServerService;
 import com.ruoyi.tinc_server.domain.MangeServer;
 import com.ruoyi.tinc.runtime.TincRuntimeRouter;
@@ -118,6 +121,8 @@ class TincClientApiControllerTest {
 
         assertEquals(200, responseEntity.getStatusCodeValue());
         assertEquals(serverMaster.replace("\r\n", "\n"), responseEntity.getBody());
+        verify(nodeService).markClientConfigured(5L);
+        verify(nodeService, never()).updateTincNodeMange(any());
         verify(runtimeRouter).upsertPeer(eq(server), eq("new_network"),
                 argThat(peer -> "new_client".equals(peer.getNodeName())
                         && "10.0.11.211/32".equals(peer.getSubnet())));
@@ -134,6 +139,59 @@ class TincClientApiControllerTest {
 
         assertEquals("CLIENT_NODE_REVOKED", result.getString("code"));
         verify(response).setStatus(410);
+    }
+
+    @Test
+    void changedPublicKeyMustNotRehashPasswordOrRevokeSession() {
+        TincNodeMangeMapper mapper = mock(TincNodeMangeMapper.class);
+        TincNetworkMangeMapper networks = mock(TincNetworkMangeMapper.class);
+        TincNodeMangeServiceImpl realService = new TincNodeMangeServiceImpl();
+        ReflectionTestUtils.setField(realService, "tincNodeMangeMapper", mapper);
+        ReflectionTestUtils.setField(realService, "tincNetworkMangeMapper", networks);
+        ReflectionTestUtils.setField(realService, "mangeServerService", serverService);
+        ReflectionTestUtils.setField(realService, "redisCache", redisCache);
+        ReflectionTestUtils.setField(controller, "nodeMangeService", realService);
+
+        String storedHash = TincNodePasswordCodec.encode("secret");
+        TincNodeMange node = node(5L, 8L, "new_client", storedHash, "new_network", "10.0.11.211");
+        TincNetworkMange network = network(8L, "new_network");
+        network.setServerId(3L);
+        network.setSegment("10.0.11");
+        MangeServer server = new MangeServer();
+        server.setId(3L); server.setServerIp("203.0.113.10");
+        when(mapper.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+        when(mapper.selectTincNodeMangeById(5L)).thenReturn(node);
+        when(mapper.updateTincNodeMange(any())).thenReturn(1);
+        when(mapper.markClientConfigured(5L)).thenThrow(new IllegalStateException("test failure"))
+                .thenReturn(1);
+        when(networks.selectTincNetworkMangeById(8L)).thenReturn(network);
+        when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network);
+        when(serverService.selectMangeServerById(3L)).thenReturn(server);
+        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
+                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
+        String publicKey = RsaUtils.generateKeys().get("publicKey");
+        when(runtimeRouter.readServerMaster(server, "new_network")).thenReturn(
+                "Address = 203.0.113.10\nPort = 600\nSubnet = 10.0.11.1/32\n\n" + publicKey);
+        TincNetworkStatus ready = new TincNetworkStatus(); ready.setReadiness("READY");
+        when(runtimeRouter.upsertPeer(eq(server), eq("new_network"), any()))
+                .thenReturn(AccessOperationResult.of(true, ready), AccessOperationResult.of(false, ready));
+        JSONObject request = new JSONObject();
+        request.put("sid", "new_client"); request.put("token", "token");
+        request.put("action", "exchangeFile");
+        request.put("content", "Subnet = 10.0.11.211/32\n\n" + publicKey);
+
+        assertEquals(200, controller.uploadKey(MediaType.APPLICATION_JSON_VALUE, request.toJSONString())
+                .getStatusCodeValue());
+        assertEquals(storedHash, node.getPassword(), "Applying a public key must not rewrite credentials");
+        assertTrue(realService.verifyClientPassword(node, "secret"));
+        // An unchanged-key retry repairs the status after the first database write fails.
+        assertEquals(200, controller.uploadKey(MediaType.APPLICATION_JSON_VALUE, request.toJSONString())
+                .getStatusCodeValue());
+        verify(mapper, times(2)).markClientConfigured(5L);
+        verify(mapper, never()).updateTincNodeMange(any());
+        verify(redisCache, never()).deleteObject(anyString());
+        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:revoked-token:"), any(), anyInt(), any());
+        assertEquals(1, controller.login(loginRequest("new_client", "secret"), response).getIntValue("status"));
     }
 
     @Test

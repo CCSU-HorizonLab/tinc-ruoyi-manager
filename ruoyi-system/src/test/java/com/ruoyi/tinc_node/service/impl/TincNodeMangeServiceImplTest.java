@@ -183,6 +183,17 @@ class TincNodeMangeServiceImplTest {
     }
 
     @Test
+    void markingConfiguredOnlyWritesStatusByIdWithoutCredentialOrRuntimeOperations() {
+        when(nodeMapper.markClientConfigured(88L)).thenReturn(1);
+        assertEquals(1, service.markClientConfigured(88L));
+        verify(nodeMapper).markClientConfigured(88L);
+        verifyNoMoreInteractions(nodeMapper);
+        verifyNoInteractions(redisCache, runtimeRouter, networkMapper);
+        assertThrows(IllegalArgumentException.class, () -> service.markClientConfigured(null));
+        assertThrows(IllegalArgumentException.class, () -> service.markClientConfigured(0L));
+    }
+
+    @Test
     void passwordResetStoresOnlyHashAndRevokesIssuedTokens() {
         TincNodeMange existing = node(10L, "alice", "10.0.10.20");
         existing.setId(88L);

@@ -65,6 +65,9 @@ public interface ITincNodeMangeService
      */
     public int updateTincNodeMange(TincNodeMange tincNodeMange);
 
+    /** 公钥应用成功后仅标记配置状态，不修改身份、密码或撤销会话。 */
+    public int markClientConfigured(Long nodeId);
+
     /**
      * 批量删除Tinc节点集群管理
      * 

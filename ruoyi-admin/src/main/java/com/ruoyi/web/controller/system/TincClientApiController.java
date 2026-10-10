@@ -462,18 +462,19 @@ public class TincClientApiController {
             peer.setPublicKey(cleanPubKey);
             boolean changed = tincRuntimeRouter.upsertPeer(server, network.getNetworkName(), peer).isChanged();
 
-            if (changed) {
-                node.setStatus("已配置");
-                try {
-                    int updated = nodeMangeService.updateTincNodeMange(node);
-                    if (updated != 1) {
-                        log.warn("节点 [{}] 公钥已应用，但业务状态更新行数={}", nodeName, updated);
-                    }
-                } catch (Exception e) {
-                    // 远程公钥与本地回执均已提交，业务状态字段失败不能反向伪装成网关失败。
-                    log.error("节点 [{}] 公钥已应用，但业务状态更新失败，错误类型={}",
-                            nodeName, e.getClass().getSimpleName());
+            // 只写配置状态，绝不把携带密码哈希的查询实体传回管理员编辑入口。
+            // 相同公钥重试也补写状态，以修复上次 Runtime 成功但数据库写入失败的情况。
+            try {
+                int updated = nodeMangeService.markClientConfigured(node.getId());
+                if (updated != 1) {
+                    log.warn("节点 [{}] 公钥已应用，但业务状态更新行数={}", nodeName, updated);
                 }
+            } catch (Exception e) {
+                // Runtime 已提交；状态同步失败不伪装成网关失败，也不能撤销现有会话。
+                log.error("节点 [{}] 公钥已应用，但业务状态更新失败，错误类型={}",
+                        nodeName, e.getClass().getSimpleName());
+            }
+            if (changed) {
                 log.info("节点 [{}] 公钥已推送至对应网关的 hosts 目录", nodeName);
             } else {
                 log.info("节点 [{}] 上传的公钥未变化，不重复推送或重载网关", nodeName);

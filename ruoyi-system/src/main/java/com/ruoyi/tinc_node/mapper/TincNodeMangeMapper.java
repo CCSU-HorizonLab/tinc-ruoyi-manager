@@ -81,6 +81,8 @@ public interface TincNodeMangeMapper
      */
     public int updateTincNodeMange(TincNodeMange tincNodeMange);
 
+    public int markClientConfigured(@Param("id") Long id);
+
     /**
      * 删除Tinc节点集群管理
      * 

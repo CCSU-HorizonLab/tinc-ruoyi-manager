@@ -163,6 +163,14 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         return rows;
     }
 
+    @Override
+    public int markClientConfigured(Long nodeId) {
+        if (nodeId == null || nodeId <= 0) {
+            throw new IllegalArgumentException("节点 ID 必须为正整数");
+        }
+        return tincNodeMangeMapper.markClientConfigured(nodeId);
+    }
+
     /** Update metadata and rotate the login credential only when a new password is supplied. */
     @Override
     @Transactional(rollbackFor = Exception.class)
