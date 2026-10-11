@@ -213,6 +213,39 @@ class TincNodeMangeServiceImplTest {
     }
 
     @Test
+    void ordinaryEditCannotChangeNodeIpEvenWhenConfiguredStatusIsMissing() {
+        TincNodeMange existing = node(10L, "alice", "10.0.10.20");
+        existing.setId(88L);
+        when(nodeMapper.selectTincNodeMangeById(88L)).thenReturn(existing);
+        when(networkMapper.selectTincNetworkMangeById(10L)).thenReturn(network(10L, "network_a", "10.0.10"));
+        TincNodeMange update = new TincNodeMange();
+        update.setId(88L);
+        update.setNetworkIp("10.0.10.21");
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> service.updateTincNodeMange(update));
+        assertTrue(error.getMessage().startsWith("TINC_NODE_IP_CHANGE_FORBIDDEN:"));
+        verify(nodeMapper, never()).updateTincNodeMange(any());
+        verifyNoInteractions(runtimeRouter, redisCache);
+    }
+
+    @Test
+    void editingMetadataWithTheUnchangedIpRemainsAllowed() {
+        TincNodeMange existing = node(10L, "alice", "10.0.10.20");
+        existing.setId(88L);
+        when(nodeMapper.selectTincNodeMangeById(88L)).thenReturn(existing);
+        when(networkMapper.selectTincNetworkMangeById(10L)).thenReturn(network(10L, "network_a", "10.0.10"));
+        when(nodeMapper.updateTincNodeMange(any())).thenReturn(1);
+        TincNodeMange update = new TincNodeMange();
+        update.setId(88L); update.setNetworkIp("10.0.10.20"); update.setExplanation("new remark");
+
+        assertEquals(1, service.updateTincNodeMange(update));
+        verify(nodeMapper).updateTincNodeMange(argThat(n -> "10.0.10.20".equals(n.getNetworkIp())
+                && n.getPassword() == null && "new remark".equals(n.getExplanation())));
+        verifyNoInteractions(runtimeRouter, redisCache);
+    }
+
+    @Test
     void deleteRoutesPeerRevocationThroughNetworkServerBeforeDatabaseDelete() {
         TincNodeMange node = node(10L, "alice", "10.0.10.20");
         node.setId(50L);

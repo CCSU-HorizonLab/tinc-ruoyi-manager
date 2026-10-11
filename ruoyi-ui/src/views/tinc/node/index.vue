@@ -288,7 +288,10 @@
           <el-input v-model="form.nodeName" placeholder="请输入节点名称" :disabled="form.id != null" />
         </el-form-item>
         <el-form-item label="内网IP" prop="networkIp">
-          <el-input v-model="form.networkIp" placeholder="请输入内网IP (如 10.0.11.2)" />
+          <el-input v-model="form.networkIp" placeholder="请输入内网IP (如 10.0.11.2)" :disabled="form.id != null" />
+          <div v-if="form.id != null" style="color: #909399; font-size: 12px; line-height: 20px;">
+            已有节点 IP 不支持普通编辑，避免数据库、网关与客户端地址不一致；独立地址迁移流程尚未实现。
+          </div>
         </el-form-item>
         <el-form-item label="登录密码" prop="password">
           <el-input v-model="form.password" type="password" show-password :placeholder="form.id == null ? '请输入节点登录密码' : '留空表示不修改密码'" />

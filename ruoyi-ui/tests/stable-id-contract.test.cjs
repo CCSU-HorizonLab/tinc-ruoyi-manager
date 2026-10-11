@@ -62,3 +62,9 @@ test('node edit does not require re-submitting a stored login password', () => {
   assert.match(view, /留空表示不修改密码/)
   assert.doesNotMatch(view, /dangerouslyUseHTMLString/)
 })
+
+test('existing node IP is immutable in the ordinary edit form, but creation still accepts an IP', () => {
+  const view = read('src/views/tinc/node/index.vue')
+  assert.match(view, /<el-input v-model="form\.networkIp"[^>]*:disabled="form\.id != null"/)
+  assert.match(view, /独立地址迁移流程尚未实现/)
+})

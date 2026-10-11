@@ -299,6 +299,12 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     }
 
     private void prohibitRuntimeIdentityChange(TincNodeMange update, TincNodeMange oldNode) {
+        // Runtime hosts and the client's /32 address are not migrated by ordinary metadata edits.
+        // Do not use the possibly stale "configured" flag to decide whether changing an IP is safe.
+        if (StringUtils.isNotEmpty(update.getNetworkIp())
+                && !java.util.Objects.equals(oldNode.getNetworkIp(), update.getNetworkIp())) {
+            throw new IllegalStateException("TINC_NODE_IP_CHANGE_FORBIDDEN: 节点 IP 不能通过普通修改变更，需使用独立的地址迁移流程（当前未实现）");
+        }
         if (update.getNodeName() != null && !oldNode.getNodeName().equals(update.getNodeName())) {
             throw new IllegalStateException("TINC_NODE_RENAME_FORBIDDEN: 节点运行名称不能通过普通修改变更");
         }
