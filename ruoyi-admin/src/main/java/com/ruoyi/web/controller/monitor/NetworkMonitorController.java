@@ -1,197 +1,161 @@
 package com.ruoyi.web.controller.monitor;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
+import com.ruoyi.tinc.runtime.TincRuntimeRouter;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
 import com.ruoyi.tinc_node.service.ITincNodeMangeService;
+import com.ruoyi.tinc_server.domain.MangeServer;
+import com.ruoyi.tinc_server.service.IMangeServerService;
 
-/**
- * Tinc网络监控Controller
- * 
- * @author antigravity
- * @date 2026-06-21
- */
+/** Read-only runtime observations; missing telemetry must never become synthetic measurements. */
 @RestController
 @RequestMapping("/monitor/network")
 @PreAuthorize("@ss.hasPermi('TincNetworkMange:TincNetworkMange:list')")
-public class NetworkMonitorController extends BaseController
-{
-    @Autowired
-    private ITincNetworkMangeService tincNetworkMangeService;
+public class NetworkMonitorController extends BaseController {
+    @Autowired private ITincNetworkMangeService tincNetworkMangeService;
+    @Autowired private ITincNodeMangeService tincNodeMangeService;
+    @Autowired private IMangeServerService mangeServerService;
+    @Autowired private TincRuntimeRouter runtimeRouter;
 
-    @Autowired
-    private ITincNodeMangeService tincNodeMangeService;
-
-    /**
-     * 获取全局网络状态统计数据
-     */
     @GetMapping("/global-stats")
-    public AjaxResult getGlobalStats()
-    {
-        List<TincNetworkMange> list = tincNetworkMangeService.selectTincNetworkMangeList(new TincNetworkMange());
-        int totalNetworks = list.size();
-        int onlineNetworks = 0;
-        for (TincNetworkMange net : list)
-        {
-            String status = net.getNetworkStatus();
-            if ("正常运行中".equals(status) || "在线".equals(status) || "正常".equals(status))
-            {
-                onlineNetworks++;
-            }
+    public AjaxResult getGlobalStats() {
+        List<TincNetworkMange> networks = tincNetworkMangeService.selectTincNetworkMangeList(new TincNetworkMange());
+        List<MangeServer> servers = mangeServerService.selectMangeServerList(new MangeServer());
+        Map<Long, MangeServer> serversById = new HashMap<>();
+        int reportedOnlineAgents = 0;
+        for (MangeServer server : servers) {
+            serversById.put(server.getId(), server);
+            // Stored Agent health, NOT proof of current data-plane connectivity.
+            if ("ONLINE".equals(server.getAgentStatus())) reportedOnlineAgents++;
         }
-        int onlineRate = totalNetworks > 0 ? (onlineNetworks * 100 / totalNetworks) : 0;
-
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalNetworks", totalNetworks);
-        stats.put("onlineNetworks", onlineNetworks);
-        stats.put("onlineRate", onlineRate);
-        
-        // Dynamic realistic values
-        int avgResponseTime = totalNetworks > 0 ? 30 + new Random().nextInt(20) : 0;
-        stats.put("averageResponseTime", avgResponseTime);
-        
-        int healthScore = totalNetworks > 0 ? 80 + new Random().nextInt(16) : 100;
-        stats.put("healthScore", healthScore);
-        
-        String healthStatus = "网络健康状态良好";
-        if (healthScore < 60)
-        {
-            healthStatus = "部分网络出现故障";
+        List<Map<String, Object>> observations = new ArrayList<>();
+        int ready = 0;
+        int unknown = 0;
+        for (TincNetworkMange network : networks) {
+            Map<String, Object> observation = inspect(network, serversById.get(network.getServerId()));
+            observations.add(observation);
+            if ("READY".equals(observation.get("readiness"))) ready++;
+            if ("UNKNOWN".equals(observation.get("readiness"))) unknown++;
         }
-        else if (healthScore < 80)
-        {
-            healthStatus = "网络存在性能波动";
-        }
-        stats.put("healthStatus", healthStatus);
-        
-        stats.put("averageRecoveryTime", totalNetworks > 0 ? 10 + new Random().nextInt(10) : 0);
-
-        // Chart data
-        Map<String, Object> responseTimeChartData = new HashMap<>();
-        List<Integer> expectedResp = new ArrayList<>();
-        List<Integer> actualResp = new ArrayList<>();
-        Random rand = new Random();
-        for (int i = 0; i < 7; i++)
-        {
-            expectedResp.add(50);
-            actualResp.add(40 + rand.nextInt(15));
-        }
-        responseTimeChartData.put("expectedData", expectedResp);
-        responseTimeChartData.put("actualData", actualResp);
-        stats.put("responseTimeChartData", responseTimeChartData);
-
-        Map<String, Object> interruptChartData = new HashMap<>();
-        List<Integer> expectedInt = new ArrayList<>();
-        List<Integer> actualInt = new ArrayList<>();
-        for (int i = 0; i < 7; i++)
-        {
-            expectedInt.add(rand.nextInt(3));
-            actualInt.add(rand.nextInt(2));
-        }
-        interruptChartData.put("expectedData", expectedInt);
-        interruptChartData.put("actualData", actualInt);
-        stats.put("interruptChartData", interruptChartData);
-
+        Map<String, Object> stats = unavailableTelemetry();
+        stats.put("totalNetworks", networks.size());
+        stats.put("onlineNetworks", ready); // Compatibility alias: confirmed READY, not client reachability.
+        stats.put("onlineRate", networks.isEmpty() ? null : ready * 100 / networks.size());
+        stats.put("unknownNetworks", unknown);
+        stats.put("notReadyNetworks", networks.size() - ready - unknown);
+        stats.put("networks", observations);
+        stats.put("totalServers", servers.size());
+        stats.put("reportedOnlineAgents", reportedOnlineAgents);
+        stats.put("agentStatusSource", "DATABASE_LAST_PROBE");
+        stats.put("nodeSummary", nodeSummary(tincNodeMangeService.selectTincNodeMangeList(new TincNodeMange())));
+        stats.put("observedAt", System.currentTimeMillis());
         return AjaxResult.success(stats);
     }
 
-    /**
-     * 获取单个内网的详细监控数据
-     */
     @GetMapping("/single-stats/{networkId}")
-    public AjaxResult getSingleStats(@PathVariable("networkId") Long networkId)
-    {
+    public AjaxResult getSingleStats(@PathVariable("networkId") Long networkId) {
+        if (networkId == null || networkId <= 0) return AjaxResult.error("无效的网络 ID");
         TincNetworkMange network = tincNetworkMangeService.selectTincNetworkMangeById(networkId);
-        if (network == null)
-        {
-            return AjaxResult.error("未找到对应的内网信息");
-        }
-
-        Map<String, Object> stats = new HashMap<>();
-        String status = network.getNetworkStatus();
-        boolean isOnline = "正常运行中".equals(status) || "在线".equals(status) || "正常".equals(status);
-        stats.put("isOnline", isOnline);
-
-        // Response time details
-        Map<String, Object> responseTime = new HashMap<>();
-        int value = isOnline ? 35 + new Random().nextInt(15) : 0;
-        responseTime.put("value", value);
-        responseTime.put("progress", value);
-        responseTime.put("avg", isOnline ? 40 + new Random().nextInt(5) : 0);
-        responseTime.put("max", isOnline ? 80 + new Random().nextInt(15) : 0);
-        responseTime.put("min", isOnline ? 30 + new Random().nextInt(5) : 0);
-        stats.put("responseTime", responseTime);
-
-        // Health score details
-        Map<String, Object> healthScore = new HashMap<>();
-        int hVal = isOnline ? 85 + new Random().nextInt(15) : 0;
-        healthScore.put("value", hVal);
-        healthScore.put("progress", hVal);
-        healthScore.put("network", isOnline ? 90 + new Random().nextInt(10) : 0);
-        healthScore.put("test", isOnline ? 80 + new Random().nextInt(15) : 0);
-        healthScore.put("security", isOnline ? 85 + new Random().nextInt(15) : 0);
-        stats.put("healthScore", healthScore);
-
-        // Traffic details
-        Map<String, Object> traffic = new HashMap<>();
-        int tVal = isOnline ? 40 + new Random().nextInt(30) : 0;
-        traffic.put("value", tVal);
-        traffic.put("progress", tVal);
-        traffic.put("upload", isOnline ? Math.round((5 + new Random().nextDouble() * 15) * 10.0) / 10.0 : 0.0);
-        traffic.put("total", isOnline ? Math.round((20 + new Random().nextDouble() * 50) * 10.0) / 10.0 : 0.0);
-        traffic.put("bandwidth", 100);
-        stats.put("traffic", traffic);
-
-        // Node Rate details
-        TincNodeMange queryNode = new TincNodeMange();
-        queryNode.setNetworkId(network.getId());
-        List<TincNodeMange> nodeList = tincNodeMangeService.selectTincNodeMangeList(queryNode);
-        int totalNodes = nodeList.size();
-        int onlineNodes = 0;
-        for (TincNodeMange node : nodeList)
-        {
-            String nStatus = node.getNodeStatus();
-            if ("正常运行中".equals(nStatus) || "在线".equals(nStatus) || "正常".equals(nStatus))
-            {
-                onlineNodes++;
-            }
-        }
-        int nodeVal = totalNodes > 0 ? (onlineNodes * 100 / totalNodes) : 0;
-        Map<String, Object> nodeRate = new HashMap<>();
-        nodeRate.put("value", nodeVal);
-        nodeRate.put("progress", nodeVal);
-        nodeRate.put("online", onlineNodes);
-        nodeRate.put("offline", totalNodes - onlineNodes);
-        nodeRate.put("total", totalNodes);
-        stats.put("nodeRate", nodeRate);
-
-        // Interrupt event chart data
-        Map<String, Object> interruptEventData = new HashMap<>();
-        List<Integer> expectedInt = new ArrayList<>();
-        List<Integer> actualInt = new ArrayList<>();
-        Random rand = new Random();
-        for (int i = 0; i < 7; i++)
-        {
-            expectedInt.add(rand.nextInt(2));
-            actualInt.add(isOnline ? 0 : rand.nextInt(2));
-        }
-        interruptEventData.put("expectedData", expectedInt);
-        interruptEventData.put("actualData", actualInt);
-        stats.put("interruptEventData", interruptEventData);
-
+        if (network == null) return AjaxResult.error("未找到对应的内网信息");
+        MangeServer server = network.getServerId() == null ? null
+                : mangeServerService.selectMangeServerById(network.getServerId());
+        Map<String, Object> stats = unavailableTelemetry();
+        stats.putAll(inspect(network, server));
+        stats.put("isOnline", "UNKNOWN".equals(stats.get("readiness")) ? null
+                : "READY".equals(stats.get("readiness")));
+        TincNodeMange filter = new TincNodeMange();
+        filter.setNetworkId(networkId);
+        stats.put("nodeSummary", nodeSummary(tincNodeMangeService.selectTincNodeMangeList(filter)));
+        // Legacy shapes are retained, with null values to distinguish uncollected from zero.
+        stats.put("responseTime", missingValues("value", "progress", "avg", "max", "min"));
+        stats.put("healthScore", missingValues("value", "progress", "network", "test", "security"));
+        stats.put("traffic", missingValues("value", "progress", "upload", "total", "bandwidth"));
+        stats.put("nodeRate", missingValues("value", "progress", "online", "offline", "total"));
         return AjaxResult.success(stats);
+    }
+
+    private Map<String, Object> inspect(TincNetworkMange network, MangeServer server) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("networkId", network.getId());
+        result.put("serverId", network.getServerId());
+        result.put("networkName", network.getNetworkName());
+        result.put("readiness", "UNKNOWN");
+        result.put("failureCode", "STATUS_QUERY_FAILED");
+        result.put("failureMessage", "运行状态查询失败，请检查接入服务器和 Agent");
+        result.put("source", "RUNTIME_PROBE");
+        try {
+            if (server == null) {
+                result.put("failureCode", "LEGACY_RELATION_MISSING");
+                result.put("failureMessage", "网络缺少有效的接入服务器关联");
+            } else {
+                TincNetworkStatus status = runtimeRouter.inspectNetwork(server, network.getNetworkName());
+                if (status != null && ("READY".equals(status.getReadiness())
+                        || "NOT_READY".equals(status.getReadiness())
+                        || "DEGRADED".equals(status.getReadiness()))) {
+                    result.put("readiness", status.getReadiness());
+                    result.put("failureCode", safeCode(status.getFailureCode()));
+                    result.put("failureMessage", status.isReady() ? null : "运行时未就绪，请查看网络诊断");
+                }
+            }
+        } catch (RuntimeException failure) {
+            // Never relay remote bodies, tokens, paths or exception messages.
+            logger.warn("网络监控查询失败: networkId={}, errorType={}",
+                    network.getId(), failure.getClass().getSimpleName());
+        }
+        result.put("observedAt", System.currentTimeMillis());
+        return result;
+    }
+
+    private String safeCode(String code) {
+        return code != null && code.matches("[A-Z][A-Z0-9_]{0,79}") ? code : null;
+    }
+
+    private Map<String, Object> nodeSummary(List<TincNodeMange> nodes) {
+        int configured = 0;
+        for (TincNodeMange node : nodes) {
+            if ("已配置".equals(node.getStatus()) || "1".equals(node.getStatus())) configured++;
+        }
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("total", nodes.size());
+        summary.put("configured", configured);
+        summary.put("source", "DATABASE");
+        // There is no expiring heartbeat observation in the current node model.
+        summary.put("online", null);
+        return summary;
+    }
+
+    private Map<String, Object> unavailableTelemetry() {
+        Map<String, Object> stats = missingValues("averageResponseTime", "healthScore", "averageRecoveryTime");
+        stats.put("telemetryCollected", false);
+        stats.put("healthStatus", "未采集");
+        stats.put("responseTimeChartData", emptyChart());
+        stats.put("interruptChartData", emptyChart());
+        stats.put("interruptEventData", emptyChart());
+        return stats;
+    }
+
+    private Map<String, Object> missingValues(String... fields) {
+        Map<String, Object> result = new HashMap<>();
+        for (String field : fields) result.put(field, null);
+        return result;
+    }
+
+    private Map<String, Object> emptyChart() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("expectedData", Collections.emptyList());
+        result.put("actualData", Collections.emptyList());
+        return result;
     }
 }

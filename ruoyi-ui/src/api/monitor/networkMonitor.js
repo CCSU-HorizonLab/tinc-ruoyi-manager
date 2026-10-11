@@ -4,7 +4,8 @@ import request from '@/utils/request'
 export function getGlobalNetworkStats() {
   return request({
     url: '/monitor/network/global-stats',
-    method: 'get'
+    method: 'get',
+    timeout: 60000
   })
 }
 
@@ -12,6 +13,7 @@ export function getGlobalNetworkStats() {
 export function getSingleNetworkMonitor(networkId) {
   return request({
     url: '/monitor/network/single-stats/' + networkId,
-    method: 'get'
+    method: 'get',
+    timeout: 30000
   })
 }

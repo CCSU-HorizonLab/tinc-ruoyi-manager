@@ -8,7 +8,7 @@
         </div>
         <div class="tl-header-titles">
           <h2 class="tl-header-title">单网监控面板</h2>
-          <p class="tl-header-desc">查看指定接入服务器下虚拟网络的运行状态、拓扑指标与健康度</p>
+          <p class="tl-header-desc">按稳定 ID 查询网关运行状态；未采集的指标不显示模拟数据</p>
         </div>
       </div>
       <div class="tl-header-actions" v-if="selectedNetwork">
@@ -89,7 +89,7 @@
             <i class="el-icon-data-line"></i>
           </div>
           <h4 class="guidance-main-tip">选择一个 Access Server 和 Network 以查看实时运行状态</h4>
-          <p class="guidance-sub-tip">监控面板将实时读取对应宿主网关与该网络的 Tinc Runtime 运行状态、接口流量与拓扑心跳</p>
+          <p class="guidance-sub-tip">监控面板只读查询对应网关的 Tinc Runtime；流量、延迟与节点在线率暂未采集</p>
         </div>
 
         <div class="guidance-features-grid">
@@ -109,7 +109,7 @@
             </div>
             <div class="item-content">
               <div class="item-title">安全隧道与公钥路由</div>
-              <div class="item-desc">全流量端到端加密、严格网段地址隔离与确定性公钥交换路由</div>
+              <div class="item-desc">配置状态仅说明公钥应用记录，不代表客户端已在线或隧道已连通</div>
             </div>
           </div>
 
@@ -119,7 +119,7 @@
             </div>
             <div class="item-content">
               <div class="item-title">实时探针与健康就绪</div>
-              <div class="item-desc">自动化采集网关负载、Tinc 守护进程 PID 与网络 READY 就绪度</div>
+              <div class="item-desc">只读探测运行时就绪度，不启动、重启或重载 Tinc</div>
             </div>
           </div>
         </div>
@@ -140,7 +140,7 @@
               <span class="value network-name-highlight">{{ selectedNetworkName }}</span>
               <el-divider direction="vertical"></el-divider>
               <span class="label">宿主服务器:</span>
-              <span class="value"><i class="el-icon-office-building"></i> {{ selectedServer }}</span>
+              <span class="value"><i class="el-icon-office-building"></i> {{ selectedServerLabel }}</span>
             </div>
             <div class="banner-subtitle-row">
               <span class="sub-label">监控目标ID:</span>
@@ -150,363 +150,145 @@
           </div>
         </div>
         <div class="info-right">
-          <span :class="['tl-status-badge', isOnline ? 'ready' : 'offline']" style="font-size: 13px; padding: 6px 14px;">
+          <span :class="['tl-status-badge', readiness === 'READY' ? 'ready' : 'unknown']" style="font-size: 13px; padding: 6px 14px;">
             <span class="tl-status-dot"></span>
             {{ statusLabel }}
           </span>
         </div>
       </div>
       
-      <!-- 监控指标卡片 -->
-      <el-row :gutter="20" style="margin-bottom: 20px;">
-        <!-- 响应时间卡片 -->
-        <el-col :xs="24" :sm="12" :lg="6">
-          <el-card class="monitor-card tl-card" shadow="hover">
-            <div slot="header" class="card-header">
-              <span>响应时间</span>
-              <span class="tl-demo-badge">演示数据</span>
-            </div>
-            <div class="card-content">
-              <div class="progress-wrapper">
-                <el-progress 
-                  type="dashboard" 
-                  :percentage="responseTime.progress" 
-                  :color="responseTimeColors"
-                  :width="120">
-                  <template slot="default">
-                    <div class="progress-text">
-                      <span class="value">{{ responseTime.value }}</span>
-                      <span class="unit">ms</span>
-                    </div>
-                  </template>
-                </el-progress>
-              </div>
-              <div class="monitor-details">
-                <div class="detail-item">
-                  <span class="detail-label">平均</span>
-                  <span class="detail-value">{{ responseTime.avg }} ms</span>
-                </div>
-                <div class="detail-item">
-                  <span class="detail-label">最高</span>
-                  <span class="detail-value warning">{{ responseTime.max }} ms</span>
-                </div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        
-        <!-- 健康分数卡片 -->
-        <el-col :xs="24" :sm="12" :lg="6">
-          <el-card class="monitor-card tl-card" shadow="hover">
-            <div slot="header" class="card-header">
-              <span>健康分数</span>
-              <span class="tl-demo-badge">演示数据</span>
-            </div>
-            <div class="card-content">
-              <div class="progress-wrapper">
-                <el-progress 
-                  type="dashboard" 
-                  :percentage="healthScore.progress" 
-                  :color="healthColors"
-                  :width="120">
-                </el-progress>
-              </div>
-              <div class="monitor-details">
-                <div class="detail-item">
-                  <span class="detail-label">通信网络</span>
-                  <span class="detail-value">{{ healthScore.network }}分</span>
-                </div>
-                <div class="detail-item">
-                  <span class="detail-label">安全准入</span>
-                  <span class="detail-value">{{ healthScore.security }}分</span>
-                </div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        
-        <!-- 流量卡片 -->
-        <el-col :xs="24" :sm="12" :lg="6">
-          <el-card class="monitor-card tl-card" shadow="hover">
-            <div slot="header" class="card-header">
-              <span>流量状态</span>
-              <span class="tl-demo-badge">演示数据</span>
-            </div>
-            <div class="card-content">
-              <div class="progress-wrapper">
-                <el-progress 
-                  type="dashboard" 
-                  :percentage="traffic.progress" 
-                  color="#e6a23c"
-                  :width="120">
-                  <template slot="default">
-                    <div class="progress-text">
-                      <span class="value">{{ traffic.value }}</span>
-                      <span class="unit">%</span>
-                    </div>
-                  </template>
-                </el-progress>
-              </div>
-              <div class="monitor-details">
-                <div class="detail-item">
-                  <span class="detail-label">上行速率</span>
-                  <span class="detail-value">{{ traffic.upload }} Mbps</span>
-                </div>
-                <div class="detail-item">
-                  <span class="detail-label">累计吞吐</span>
-                  <span class="detail-value">{{ traffic.total }} Mbps</span>
-                </div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        
-        <!-- 节点在线率卡片 -->
-        <el-col :xs="24" :sm="12" :lg="6">
-          <el-card class="monitor-card tl-card" shadow="hover">
-            <div slot="header" class="card-header">
-              <span>节点状态</span>
-              <span class="tl-demo-badge">演示数据</span>
-            </div>
-            <div class="card-content">
-              <div class="progress-wrapper">
-                <el-progress 
-                  type="dashboard" 
-                  :percentage="nodeRate.progress" 
-                  :color="nodeRateColors"
-                  :width="120">
-                </el-progress>
-              </div>
-              <div class="monitor-details">
-                <div class="detail-item">
-                  <span class="detail-label">在线节点</span>
-                  <span class="detail-value success">{{ nodeRate.online }}</span>
-                </div>
-                <div class="detail-item">
-                  <span class="detail-label">离线节点</span>
-                  <span class="detail-value danger">{{ nodeRate.offline }}</span>
-                </div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
-      
-      <!-- 监控图表区域 -->
-      <el-row :gutter="20">
-        <!-- 健康趋势图表 -->
-        <el-col :xs="24" :lg="12">
-          <el-card class="chart-card tl-card" shadow="hover">
-            <div slot="header" class="card-header">
-              <span class="title">健康评分趋势（前7天）</span>
-              <span class="tl-demo-badge">演示数据</span>
-            </div>
-            <div class="card-content">
-              <div class="chart-container">
-                <bar-chart ref="healthBarChart" :height="'250px'" />
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        
-        <!-- 网络中断事件图表 -->
-        <el-col :xs="24" :lg="12">
-          <el-card class="chart-card tl-card" shadow="hover">
-            <div slot="header" class="card-header">
-              <span class="title">网络中断事件（前7天）</span>
-              <span class="tl-demo-badge">演示数据</span>
-            </div>
-            <div class="card-content">
-              <div class="chart-container">
-                <line-chart :chart-data="interruptEventData" :height="'250px'" />
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
+      <el-alert v-if="queryError" :title="queryError" type="error" :closable="false" show-icon />
+      <el-card class="tl-card">
+        <div slot="header">本次观测</div>
+        <p>查询时间：{{ observedAtLabel }}</p>
+        <p>诊断代码：{{ failureCode || '—' }}</p>
+        <p>{{ failureMessage || 'READY 仅代表网关运行时就绪，不等同于客户端握手或 Ping 成功。' }}</p>
+        <p>登记节点：{{ display(nodeSummary.total) }}；已配置：{{ display(nodeSummary.configured) }}。</p>
+        <p>节点在线率未采集。数据库“已配置”或历史状态不能替代有效期内的心跳证据。</p>
+      </el-card>
+      <el-card class="chart-card tl-card" style="margin-top: 20px;">
+        <div slot="header">性能与历史趋势</div>
+        <el-empty description="未采集：响应时间、流量、健康评分、历史中断事件；不显示模拟值。" :image-size="70" />
+      </el-card>
     </div>
   </div>
 </template>
 
 <script>
-import LineChart from './LineChart.vue'
-import BarChart from './BarChart.vue'
 import { listServer } from '@/api/tinc/server'
 import { listNetwork } from '@/api/tinc/network'
 import { getSingleNetworkMonitor } from '@/api/monitor/networkMonitor'
 
 export default {
-  components: {
-    LineChart,
-    BarChart
-  },
   data() {
     return {
-      loading: false,
-      autoRefresh: false,
-      refreshTimer: null,
-      servers: [],
-      networks: [],
-      selectedServer: '',
-      selectedNetworkId: '',
-      selectedNetwork: false,
-      selectedNetworkName: '',
-      
-      responseTimeColors: [
-        { color: '#67c23a', percentage: 40 },
-        { color: '#e6a23c', percentage: 70 },
-        { color: '#f56c6c', percentage: 100 }
-      ],
-      healthColors: [
-        { color: '#f56c6c', percentage: 60 },
-        { color: '#e6a23c', percentage: 80 },
-        { color: '#67c23a', percentage: 100 }
-      ],
-      nodeRateColors: [
-        { color: '#f56c6c', percentage: 40 },
-        { color: '#e6a23c', percentage: 80 },
-        { color: '#67c23a', percentage: 100 }
-      ],
-
-      isOnline: true,
-      
-      responseTime: { value: 0, progress: 0, avg: 0, max: 0, min: 0 },
-      healthScore: { value: 0, progress: 0, network: 0, test: 0, security: 0 },
-      traffic: { value: 0, progress: 0, upload: 0, total: 0, bandwidth: 0 },
-      nodeRate: { value: 0, progress: 0, online: 0, offline: 0, total: 0 },
-      
-      interruptEventData: {
-        expectedData: [],
-        actualData: []
-      }
+      loading: false, autoRefresh: false, refreshTimer: null, requestVersion: 0,
+      servers: [], networks: [], selectedServer: '', selectedNetworkId: '',
+      selectedNetwork: false, selectedNetworkName: '', readiness: 'UNKNOWN',
+      queryError: '', failureCode: '', failureMessage: '', observedAt: null,
+      nodeSummary: { total: null, configured: null }
     }
   },
   computed: {
-    statusTagType() {
-      return this.isOnline ? 'success' : 'danger'
+    selectedServerLabel() {
+      const server = this.servers.find(item => item.value === this.selectedServer)
+      return server ? server.label : '—'
+    },
+    observedAtLabel() {
+      return this.observedAt ? new Date(this.observedAt).toLocaleString() : '未获得观测'
     },
     statusLabel() {
-      return this.isOnline ? 'READY · 运行正常' : 'NOT READY · 离线'
+      const labels = { READY: 'READY · 网关就绪', NOT_READY: 'NOT_READY · 网关未就绪',
+        DEGRADED: 'DEGRADED · 部分异常', UNKNOWN: 'UNKNOWN · 状态未知' }
+      return labels[this.readiness] || labels.UNKNOWN
     }
   },
-  created() {
-    this.getServerOptions();
-  },
+  created() { this.getServerOptions() },
   beforeDestroy() {
+    this.requestVersion++
     this.stopRefreshTimer()
   },
   methods: {
+    display(value) { return value == null ? '—' : value },
     getServerOptions() {
-      listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
-        this.servers = response.rows.map(server => ({
-          value: server.serverName,
-          label: server.serverName
-        }));
-      })
+      return listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
+        this.servers = response.rows.map(server => ({ value: server.id, label: server.serverName }))
+      }).catch(() => { this.servers = [] })
     },
-
-    getNetworksByServer(serverName) {
-      listNetwork({ serverName: serverName }).then(response => {
-        this.networks = response.rows.map(network => ({
-          value: network.id,
-          label: network.networkName
-        }));
-      })
-    },
-    
-    handleServerChange(serverName) {
-      if (serverName) {
-        this.getNetworksByServer(serverName);
-      } else {
-        this.networks = [];
-      }
-      this.selectedNetworkId = '';
-    },
-    
-    confirmSelection() {
-      if (!this.selectedServer || !this.selectedNetworkId) {
-        return;
-      }
-      const network = this.networks.find(n => n.value === this.selectedNetworkId);
-      if (network) {
-        this.selectedNetworkName = network.label;
-        this.selectedNetwork = true;
-        this.getMonitorData();
-      }
-    },
-
-    getMonitorData() {
-      this.loading = true;
-      getSingleNetworkMonitor(this.selectedNetworkId).then(response => {
-        if (response.data) {
-          this.updateMonitorData(response.data);
-        }
-        this.loading = false;
+    getNetworksByServer(serverId) {
+      return listNetwork({ serverId, pageNum: 1, pageSize: 10000 }).then(response => {
+        if (this.selectedServer !== serverId) return
+        this.networks = response.rows.map(network => ({ value: network.id, label: network.networkName }))
       }).catch(() => {
-        this.loading = false;
-        this.simulateMonitorData();
-      });
+        if (this.selectedServer === serverId) this.networks = []
+      })
     },
-
-    updateMonitorData(data) {
-      this.isOnline = data.isOnline;
-      this.responseTime = data.responseTime;
-      this.healthScore = data.healthScore;
-      this.traffic = data.traffic;
-      this.nodeRate = data.nodeRate;
-      this.interruptEventData = data.interruptEventData;
+    handleServerChange(serverId) {
+      this.requestVersion++
+      this.selectedNetworkId = ''
+      this.networks = []
+      this.clearObservation()
+      if (serverId) this.getNetworksByServer(serverId)
     },
-    
-    simulateMonitorData() {
-      this.isOnline = true;
-      this.responseTime = { value: 45, progress: 35, avg: 43, max: 88, min: 38 };
-      this.healthScore = { value: 95, progress: 95, network: 98, test: 92, security: 95 };
-      this.traffic = { value: 65, progress: 65, upload: 12.5, total: 45.2, bandwidth: 100 };
-      
-      const online = 5;
-      const total = 6;
-      this.nodeRate = { 
-        value: Math.round((online/total)*100), 
-        progress: Math.round((online/total)*100), 
-        online: online, 
-        offline: total - online, 
-        total: total 
-      };
-
-      this.interruptEventData = {
-        expectedData: [0, 1, 0, 0, 1, 0, 0],
-        actualData: [0, 0, 0, 0, 0, 0, 0]
-      };
+    confirmSelection() {
+      const network = this.networks.find(item => item.value === this.selectedNetworkId)
+      if (!this.selectedServer || !network) return
+      this.selectedNetworkName = network.label
+      this.selectedNetwork = true
+      this.getMonitorData()
     },
-    
-    handleAutoRefreshChange(val) {
-      if (val) {
-        this.startRefreshTimer()
-      } else {
-        this.stopRefreshTimer()
+    clearObservation() {
+      this.readiness = 'UNKNOWN'
+      this.observedAt = null
+      this.failureCode = ''
+      this.failureMessage = ''
+      this.queryError = ''
+      this.nodeSummary = { total: null, configured: null }
+    },
+    async getMonitorData() {
+      if (!this.selectedNetwork || this.loading) return
+      const version = ++this.requestVersion
+      const networkId = this.selectedNetworkId
+      this.loading = true
+      this.clearObservation()
+      try {
+        const response = await getSingleNetworkMonitor(networkId)
+        if (version !== this.requestVersion || networkId !== this.selectedNetworkId) return
+        const data = response.data
+        if (!data || data.networkId !== networkId || !data.nodeSummary) throw new Error('INVALID_MONITOR_RESPONSE')
+        this.readiness = ['READY', 'NOT_READY', 'DEGRADED'].includes(data.readiness) ? data.readiness : 'UNKNOWN'
+        this.observedAt = data.observedAt
+        this.failureCode = data.failureCode
+        this.failureMessage = data.failureMessage
+        this.nodeSummary = data.nodeSummary
+      } catch (_) {
+        if (version !== this.requestVersion) return
+        this.clearObservation()
+        this.queryError = 'STATUS_QUERY_FAILED · 查询失败，当前状态未知，请重试。'
+        this.failureCode = 'STATUS_QUERY_FAILED'
+      } finally {
+        if (version === this.requestVersion) this.loading = false
       }
     },
-    startRefreshTimer() {
+    handleAutoRefreshChange(value) {
       this.stopRefreshTimer()
-      this.refreshTimer = setInterval(() => {
-        this.getMonitorData()
-      }, 30000)
+      if (value) this.refreshTimer = setInterval(() => this.getMonitorData(), 30000)
     },
     stopRefreshTimer() {
-      if (this.refreshTimer) {
-        clearInterval(this.refreshTimer)
-        this.refreshTimer = null
-      }
+      if (this.refreshTimer) clearInterval(this.refreshTimer)
+      this.refreshTimer = null
     },
-
     resetSelection() {
-      this.stopRefreshTimer();
-      this.autoRefresh = false;
-      this.selectedServer = '';
-      this.selectedNetworkId = '';
-      this.selectedNetwork = false;
-      this.selectedNetworkName = '';
-      this.networks = [];
+      this.requestVersion++
+      this.loading = false
+      this.stopRefreshTimer()
+      this.autoRefresh = false
+      this.selectedServer = ''
+      this.selectedNetworkId = ''
+      this.selectedNetwork = false
+      this.selectedNetworkName = ''
+      this.networks = []
+      this.clearObservation()
     }
   }
 }
