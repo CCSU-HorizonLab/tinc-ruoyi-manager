@@ -28,6 +28,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
@@ -76,6 +77,9 @@ public class TincClientApiController {
     private RedisCache redisCache;
 
     @Autowired
+    private TincClientLoginLimiter loginLimiter;
+
+    @Autowired
     private TincRuntimeRouter tincRuntimeRouter;
 
     /**
@@ -101,16 +105,28 @@ public class TincClientApiController {
         boolean hasAccessCode = StringUtils.isNotEmpty(accessCode);
         boolean hasSid = StringUtils.isNotEmpty(sid);
 
+        String normalizedCode = hasAccessCode ? accessCode.trim().toUpperCase(Locale.ROOT) : null;
+        String loginTarget = hasAccessCode ? "access:" + normalizedCode : "sid:" + (hasSid ? sid : "missing");
+
         if (hasAccessCode) {
             log.info("客户端登录请求 [AccessCode 模式]");
         } else {
-            log.warn("客户端登录请求 [已弃用的 Legacy SID 模式]: sid={}, 密码长度={}",
-                    sid, password != null ? password.length() : 0);
+            log.warn("客户端登录请求 [已弃用的 Legacy SID 模式]");
         }
 
         JSONObject result = new JSONObject();
 
         try {
+            long retryAfter = loginLimiter.consume(loginTarget);
+            if (retryAfter > 0) {
+                response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+                response.setHeader(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfter));
+                result.put("status", 0);
+                result.put("code", "CLIENT_LOGIN_RATE_LIMITED");
+                result.put("msg", "登录尝试过于频繁，请稍后重试");
+                result.put("retry_after", retryAfter);
+                return result;
+            }
             if (StringUtils.isEmpty(password)) {
                 log.warn("客户端登录失败: 密码为空");
                 result.put("status", 0);
@@ -123,7 +139,6 @@ public class TincClientApiController {
 
             if (hasAccessCode) {
                 // 1. 新模式：通过 accessCode 全局精确定位 0/1 个 Node
-                String normalizedCode = accessCode.trim().toUpperCase();
                 node = nodeMangeService.selectByAccessCode(normalizedCode);
                 if (node == null) {
                     log.warn("客户端接入码登录失败: 接入码不存在");
@@ -144,7 +159,7 @@ public class TincClientApiController {
             } else if (hasSid) {
                 // 2. 旧模式兼容（严格限制）
                 if (!isValidTincIdentifier(sid)) {
-                    log.warn("旧版 sid 登录失败: sid 格式不合法, sid={}", sid);
+                    log.warn("旧版 sid 登录失败: sid 格式不合法");
                     result.put("status", 0);
                     result.put("code", "CLIENT_SID_INVALID");
                     result.put("msg", "sid 格式无效");
@@ -153,7 +168,7 @@ public class TincClientApiController {
 
                 List<TincNodeMange> candidates = findExactNodes(sid);
                 if (candidates.isEmpty()) {
-                    log.warn("旧版 sid 登录失败: 节点不存在, sid={}", sid);
+                    log.warn("旧版 sid 登录失败: 节点不存在");
                     result.put("status", 0);
                     result.put("code", "CLIENT_CREDENTIAL_INVALID");
                     result.put("msg", "sid 或密码无效");
@@ -161,7 +176,7 @@ public class TincClientApiController {
                 }
 
                 if (candidates.size() > 1) {
-                    log.warn("旧版 sid 登录失败 [歧义]: 检测到 {} 个同名节点, sid={}", candidates.size(), sid);
+                    log.warn("旧版 sid 登录失败 [歧义]: 检测到 {} 个同名节点", candidates.size());
                     result.put("status", 0);
                     result.put("code", "CLIENT_LEGACY_LOGIN_AMBIGUOUS");
                     result.put("msg", "检测到多个同名节点，旧版登录无法唯一定位，请升级客户端并使用接入码登录");
@@ -171,7 +186,7 @@ public class TincClientApiController {
                 // 全局仅有 1 个候选节点时允许兼容登录
                 node = candidates.get(0);
                 if (!nodeMangeService.verifyClientPassword(node, password)) {
-                    log.warn("旧版 sid 登录认证失败: 密码错误, sid={}, nodeId={}", sid, node.getId());
+                    log.warn("旧版 sid 登录认证失败: 密码错误, nodeId={}", node.getId());
                     result.put("status", 0);
                     result.put("code", "CLIENT_CREDENTIAL_INVALID");
                     result.put("msg", "sid 或密码无效");
@@ -203,6 +218,7 @@ public class TincClientApiController {
                 return result;
             }
 
+            loginLimiter.clearCredential(loginTarget);
             String clientToken = createClientToken(node);
             result.put("status", 1);
             result.put("sid", node.getNodeName());
@@ -215,6 +231,12 @@ public class TincClientApiController {
             result.put("node_ip", node.getNetworkIp());
 
             log.info("客户端登录成功: nodeId={}, networkId={}", node.getId(), network.getId());
+        } catch (TincClientLoginLimiter.LimiterUnavailableException e) {
+            log.error("客户端登录限流器不可用，错误类型={}", e.getCause().getClass().getSimpleName());
+            response.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
+            result.put("status", 0);
+            result.put("code", "CLIENT_LOGIN_LIMITER_UNAVAILABLE");
+            result.put("msg", "登录服务暂时不可用，请稍后重试");
         } catch (Exception e) {
             log.error("登录接口异常，错误类型={}", e.getClass().getSimpleName());
             result.put("status", 0);

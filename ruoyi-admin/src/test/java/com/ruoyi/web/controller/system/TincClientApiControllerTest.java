@@ -40,6 +40,7 @@ class TincClientApiControllerTest {
     @Mock private RedisCache redisCache;
     @Mock private IMangeServerService serverService;
     @Mock private TincRuntimeRouter runtimeRouter;
+    @Mock private TincClientLoginLimiter loginLimiter;
     @Mock private HttpServletResponse response;
     private TincClientApiController controller;
 
@@ -52,6 +53,8 @@ class TincClientApiControllerTest {
         ReflectionTestUtils.setField(controller, "redisCache", redisCache);
         ReflectionTestUtils.setField(controller, "mangeServerService", serverService);
         ReflectionTestUtils.setField(controller, "tincRuntimeRouter", runtimeRouter);
+        ReflectionTestUtils.setField(controller, "loginLimiter", loginLimiter);
+        when(loginLimiter.consume(anyString())).thenReturn(0L);
         when(nodeService.verifyClientPassword(any(TincNodeMange.class), anyString()))
                 .thenAnswer(invocation -> {
                     TincNodeMange node = invocation.getArgument(0);
@@ -227,6 +230,39 @@ class TincClientApiControllerTest {
         assertEquals(0, result.getIntValue("status"));
         assertEquals("CLIENT_CREDENTIAL_INVALID", result.getString("code"));
         assertEquals("接入码或密码无效", result.getString("msg"));
+        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+        verify(loginLimiter, never()).clearCredential(anyString());
+    }
+
+    @Test
+    void repeatedLoginIsLimitedBeforeNodeLookupAcrossAccessCodeAliases() {
+        when(loginLimiter.consume("access:TL-7K9M-2Q4F")).thenReturn(47L);
+
+        JSONObject result = controller.login(accessCodeLoginRequest("TL-7k9m-2q4f", "guess"), response);
+        Map<String, String> alias = new HashMap<>();
+        alias.put("access_code", "TL-7K9M-2Q4F");
+        alias.put("password", "guess");
+        JSONObject aliasResult = controller.login(alias, response);
+
+        assertEquals("CLIENT_LOGIN_RATE_LIMITED", result.getString("code"));
+        assertEquals(47L, result.getLongValue("retry_after"));
+        assertEquals("CLIENT_LOGIN_RATE_LIMITED", aliasResult.getString("code"));
+        verify(response, times(2)).setStatus(429);
+        verify(response, times(2)).setHeader("Retry-After", "47");
+        verify(nodeService, never()).selectByAccessCode(anyString());
+        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+    }
+
+    @Test
+    void limiterFailureRejectsLoginWithoutIssuingAToken() {
+        when(loginLimiter.consume(anyString())).thenThrow(
+                new TincClientLoginLimiter.LimiterUnavailableException(new IllegalStateException("test Redis outage")));
+
+        JSONObject result = controller.login(accessCodeLoginRequest("TL-7K9M-2Q4F", "secret"), response);
+
+        assertEquals("CLIENT_LOGIN_LIMITER_UNAVAILABLE", result.getString("code"));
+        verify(response).setStatus(503);
+        verify(nodeService, never()).selectByAccessCode(anyString());
         verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
     }
 
