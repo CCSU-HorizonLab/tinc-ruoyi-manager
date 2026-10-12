@@ -23,6 +23,7 @@ import org.mockito.MockitoAnnotations;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.servlet.http.HttpServletResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -116,6 +117,7 @@ class TincClientApiControllerTest {
         TincNetworkStatus ready = new TincNetworkStatus(); ready.setReadiness("READY");
         when(runtimeRouter.upsertPeer(eq(server), eq("new_network"), any()))
                 .thenReturn(AccessOperationResult.of(false, ready));
+        when(nodeService.markClientConfigured(5L)).thenReturn(1);
         JSONObject request = new JSONObject();
         request.put("sid", "new_client"); request.put("token", "token"); request.put("action", "exchangeFile");
         request.put("content", "Subnet = 10.0.11.211/32\n\n" + publicKey);
@@ -129,6 +131,40 @@ class TincClientApiControllerTest {
         verify(runtimeRouter).upsertPeer(eq(server), eq("new_network"),
                 argThat(peer -> "new_client".equals(peer.getNodeName())
                         && "10.0.11.211/32".equals(peer.getSubnet())));
+    }
+
+    @Test
+    void keyUploadAcceptsAlreadyConfiguredRowButRejectsMissingRow() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        node.setStatus("已配置");
+        TincNetworkMange network = network(8L, "new_network");
+        network.setServerId(3L);
+        MangeServer server = new MangeServer();
+        server.setId(3L); server.setServerIp("203.0.113.10");
+        String publicKey = RsaUtils.generateKeys().get("publicKey");
+        when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
+                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
+        when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network);
+        when(serverService.selectMangeServerById(3L)).thenReturn(server);
+        when(runtimeRouter.readServerMaster(server, "new_network")).thenReturn(
+                "Address = 203.0.113.10\nPort = 600\nSubnet = 10.0.11.1/32\n\n" + publicKey);
+        TincNetworkStatus ready = new TincNetworkStatus(); ready.setReadiness("READY");
+        when(runtimeRouter.upsertPeer(eq(server), eq("new_network"), any()))
+                .thenReturn(AccessOperationResult.of(false, ready));
+        when(nodeService.markClientConfigured(5L)).thenReturn(0);
+        when(nodeService.selectTincNodeMangeById(5L)).thenReturn(node, null);
+        JSONObject request = new JSONObject();
+        request.put("sid", "new_client"); request.put("token", "token");
+        request.put("action", "exchangeFile");
+        request.put("content", "Subnet = 10.0.11.211/32\n\n" + publicKey);
+
+        assertEquals(200, controller.uploadKey(MediaType.APPLICATION_JSON_VALUE, request.toJSONString())
+                .getStatusCodeValue());
+        ResponseEntity<?> missingRow = controller.uploadKey(MediaType.APPLICATION_JSON_VALUE, request.toJSONString());
+        assertEquals(503, missingRow.getStatusCodeValue());
+        assertEquals("CLIENT_CONFIG_STATE_PERSIST_FAILED", JSONObject.parseObject(
+                new String((byte[]) missingRow.getBody(), StandardCharsets.UTF_8)).getString("code"));
     }
 
     @Test
@@ -183,8 +219,10 @@ class TincClientApiControllerTest {
         request.put("action", "exchangeFile");
         request.put("content", "Subnet = 10.0.11.211/32\n\n" + publicKey);
 
-        assertEquals(200, controller.uploadKey(MediaType.APPLICATION_JSON_VALUE, request.toJSONString())
-                .getStatusCodeValue());
+        ResponseEntity<?> failedStatus = controller.uploadKey(MediaType.APPLICATION_JSON_VALUE, request.toJSONString());
+        assertEquals(503, failedStatus.getStatusCodeValue());
+        assertEquals("CLIENT_CONFIG_STATE_PERSIST_FAILED", JSONObject.parseObject(
+                new String((byte[]) failedStatus.getBody(), StandardCharsets.UTF_8)).getString("code"));
         assertEquals(storedHash, node.getPassword(), "Applying a public key must not rewrite credentials");
         assertTrue(realService.verifyClientPassword(node, "secret"));
         // An unchanged-key retry repairs the status after the first database write fails.

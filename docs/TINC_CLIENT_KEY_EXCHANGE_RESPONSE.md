@@ -80,6 +80,7 @@ Subnet = <网关虚拟 IPv4>/32
 | 网络未关联有效的网关服务器 | 503 | `GATEWAY_UNAVAILABLE` |
 | Subnet、公钥格式、类型或位数不合规 | 400 | `CLIENT_PUBLIC_KEY_INVALID` |
 | SFTP 推送或网关重载失败 | 502 | `GATEWAY_KEY_APPLY_FAILED` |
+| 公钥已在网关应用，但节点“已配置”状态未能持久化 | 503 | `CLIENT_CONFIG_STATE_PERSIST_FAILED` |
 
 网关主机配置在任何客户端公钥写入前完成读取和严格校验，因此缺失或无效时不会产生
 `hosts/<sid>` 副作用。
@@ -88,7 +89,7 @@ Subnet = <网关虚拟 IPv4>/32
 
 后端将规范化后的期望内容同时与后台本地 `hosts/<sid>` 及成功应用回执比较：
 
-- host 内容和回执 SHA-256 均相同：直接返回 200，不执行 SFTP、不重载网关、不更新节点记录；
+- host 内容和回执 SHA-256 均相同：不重复推送或重载网关；仍幂等确认节点“已配置”状态后才返回 200；
 - 只有历史 host、没有成功回执：不得当作幂等成功，仍执行一次远程写入和 HUP；
 - 内容变化：SFTP 先在远程同目录写随机临时文件，再 rename 到 `hosts/<sid>`；随后执行
   `tincd -n <netName> -kHUP`；远程重载成功后才用临时文件和原子替换更新后台本地副本，

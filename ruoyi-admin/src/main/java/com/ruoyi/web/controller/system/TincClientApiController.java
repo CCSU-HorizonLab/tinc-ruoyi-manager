@@ -488,13 +488,18 @@ public class TincClientApiController {
             // 相同公钥重试也补写状态，以修复上次 Runtime 成功但数据库写入失败的情况。
             try {
                 int updated = nodeMangeService.markClientConfigured(node.getId());
-                if (updated != 1) {
-                    log.warn("节点 [{}] 公钥已应用，但业务状态更新行数={}", nodeName, updated);
+                if (updated != 1 && (updated != 0
+                        || !isClientAlreadyConfigured(node.getId()))) {
+                    log.warn("节点配置状态未确认: nodeId={}, updatedRows={}", node.getId(), updated);
+                    return clientApiError(HttpStatus.SERVICE_UNAVAILABLE,
+                            "CLIENT_CONFIG_STATE_PERSIST_FAILED", "公钥已应用，但节点配置状态保存失败，请稍后重试公钥上传");
                 }
             } catch (Exception e) {
-                // Runtime 已提交；状态同步失败不伪装成网关失败，也不能撤销现有会话。
-                log.error("节点 [{}] 公钥已应用，但业务状态更新失败，错误类型={}",
-                        nodeName, e.getClass().getSimpleName());
+                // Runtime 已提交；保留已应用的公钥，客户端可安全重试以修复数据库状态。
+                log.error("节点配置状态保存失败: nodeId={}, errorType={}",
+                        node.getId(), e.getClass().getSimpleName());
+                return clientApiError(HttpStatus.SERVICE_UNAVAILABLE,
+                        "CLIENT_CONFIG_STATE_PERSIST_FAILED", "公钥已应用，但节点配置状态保存失败，请稍后重试公钥上传");
             }
             if (changed) {
                 log.info("节点 [{}] 公钥已推送至对应网关的 hosts 目录", nodeName);
@@ -762,6 +767,11 @@ public class TincClientApiController {
     private List<TincNodeMange> findExactNodes(String nodeName) {
         List<TincNodeMange> matches = nodeMangeService.selectByNodeNameExact(nodeName);
         return matches == null ? java.util.Collections.emptyList() : matches;
+    }
+
+    private boolean isClientAlreadyConfigured(Long nodeId) {
+        TincNodeMange current = nodeMangeService.selectTincNodeMangeById(nodeId);
+        return current != null && "已配置".equals(current.getStatus());
     }
 
     private TincNodeMange findTokenBoundNode(List<TincNodeMange> candidates, String token) throws Exception {
