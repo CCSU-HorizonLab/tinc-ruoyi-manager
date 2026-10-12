@@ -24,6 +24,7 @@ import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 import com.ruoyi.tinc.runtime.TincRuntimeRouter;
 import com.ruoyi.tinc_server.domain.MangeServer;
 import com.ruoyi.tinc_server.service.IMangeServerService;
+import com.ruoyi.tinc.security.TincResourceAccess;
 
 /**
  * Tinc内网集群管理Controller
@@ -44,6 +45,9 @@ public class TincNetworkMangeController extends BaseController
     @Autowired
     private IMangeServerService mangeServerService;
 
+    @Autowired
+    private TincResourceAccess resourceAccess;
+
     /**
      * 查询Tinc内网集群管理列表
      * 前端表格数据来源，用于展示已创建的Tinc网络集群信息
@@ -54,6 +58,7 @@ public class TincNetworkMangeController extends BaseController
     @GetMapping("/list")
     public TableDataInfo list(TincNetworkMange tincNetworkMange)
     {
+        resourceAccess.scope(tincNetworkMange);
         startPage();
         List<TincNetworkMange> list = tincNetworkMangeService.selectTincNetworkMangeList(tincNetworkMange);
         return getDataTable(list);
@@ -70,6 +75,7 @@ public class TincNetworkMangeController extends BaseController
     @PostMapping("/export")
     public void export(HttpServletResponse response, TincNetworkMange tincNetworkMange)
     {
+        resourceAccess.scope(tincNetworkMange);
         List<TincNetworkMange> list = tincNetworkMangeService.selectTincNetworkMangeList(tincNetworkMange);
         ExcelUtil<TincNetworkMange> util = new ExcelUtil<TincNetworkMange>(TincNetworkMange.class);
         util.exportExcel(response, list, "Tinc内网集群管理数据");
@@ -85,6 +91,7 @@ public class TincNetworkMangeController extends BaseController
     @GetMapping(value = "/{id}")
     public AjaxResult getInfo(@PathVariable("id") Long id)
     {
+        resourceAccess.requireNetwork(id);
         return success(tincNetworkMangeService.selectTincNetworkMangeById(id));
     }
 
@@ -97,6 +104,7 @@ public class TincNetworkMangeController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestBody TincNetworkMange tincNetworkMange)
     {
+        resourceAccess.requireServer(tincNetworkMange.getServerId());
         tincNetworkMange.setRootName(getUsername());
         return toAjax(tincNetworkMangeService.insertTincNetworkMange(tincNetworkMange));
     }
@@ -112,6 +120,7 @@ public class TincNetworkMangeController extends BaseController
     @PutMapping
     public AjaxResult edit(@RequestBody TincNetworkMange tincNetworkMange)
     {
+        resourceAccess.requireNetwork(tincNetworkMange.getId());
         tincNetworkMange.setUpdateBy(getUsername());
         return toAjax(tincNetworkMangeService.updateTincNetworkMange(tincNetworkMange));
     }
@@ -127,6 +136,7 @@ public class TincNetworkMangeController extends BaseController
 	@DeleteMapping("/{ids}")
     public AjaxResult remove(@PathVariable Long[] ids)
     {
+        resourceAccess.requireNetworks(ids);
         return toAjax(tincNetworkMangeService.deleteTincNetworkMangeByIds(ids));
     }
 
@@ -135,6 +145,7 @@ public class TincNetworkMangeController extends BaseController
     @GetMapping("/runtime/{networkId}")
     public AjaxResult runtime(@PathVariable Long networkId)
     {
+        resourceAccess.requireNetwork(networkId);
         TincNetworkMange network = tincNetworkMangeService.selectTincNetworkMangeById(networkId);
         if (network == null || network.getServerId() == null) return error("网络或 server_id 不存在");
         MangeServer server = mangeServerService.selectMangeServerById(network.getServerId());

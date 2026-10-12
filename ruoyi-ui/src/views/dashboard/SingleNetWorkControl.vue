@@ -175,7 +175,7 @@
 </template>
 
 <script>
-import { listServer } from '@/api/tinc/server'
+import { listServerOptions } from '@/api/tinc/server'
 import { listNetwork } from '@/api/tinc/network'
 import { getSingleNetworkMonitor } from '@/api/monitor/networkMonitor'
 
@@ -211,7 +211,7 @@ export default {
   methods: {
     display(value) { return value == null ? '—' : value },
     getServerOptions() {
-      return listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
+      return listServerOptions().then(response => {
         this.servers = response.rows.map(server => ({ value: server.id, label: server.serverName }))
       }).catch(() => { this.servers = [] })
     },

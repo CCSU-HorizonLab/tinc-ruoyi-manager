@@ -58,7 +58,7 @@ test('single network HTTP failure is UNKNOWN, not simulated success or real NOT_
 test('single network uses stable selectors and ignores old network response after reset', async () => {
   let finish
   const { instance: view } = component('SingleNetWorkControl.vue', {
-    listServer: async () => ({ rows: [{ id: 4, serverName: 'Access-A' }] }),
+    listServerOptions: async () => ({ rows: [{ id: 4, serverName: 'Access-A' }] }),
     listNetwork: async query => {
       assert.equal(query.serverId, 4)
       assert.equal(query.serverName, undefined)

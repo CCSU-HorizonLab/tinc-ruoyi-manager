@@ -18,6 +18,7 @@ import com.ruoyi.tinc_node.domain.TincNodeMange;
 import com.ruoyi.tinc_node.service.ITincNodeMangeService;
 import com.ruoyi.tinc_server.domain.MangeServer;
 import com.ruoyi.tinc_server.service.IMangeServerService;
+import com.ruoyi.tinc.security.TincResourceAccess;
 
 /** Read-only runtime observations; missing telemetry must never become synthetic measurements. */
 @RestController
@@ -28,11 +29,16 @@ public class NetworkMonitorController extends BaseController {
     @Autowired private ITincNodeMangeService tincNodeMangeService;
     @Autowired private IMangeServerService mangeServerService;
     @Autowired private TincRuntimeRouter runtimeRouter;
+    @Autowired private TincResourceAccess resourceAccess;
 
     @GetMapping("/global-stats")
     public AjaxResult getGlobalStats() {
-        List<TincNetworkMange> networks = tincNetworkMangeService.selectTincNetworkMangeList(new TincNetworkMange());
-        List<MangeServer> servers = mangeServerService.selectMangeServerList(new MangeServer());
+        TincNetworkMange networkFilter = new TincNetworkMange();
+        resourceAccess.scope(networkFilter);
+        MangeServer serverFilter = new MangeServer();
+        resourceAccess.scopeServerOptions(serverFilter);
+        List<TincNetworkMange> networks = tincNetworkMangeService.selectTincNetworkMangeList(networkFilter);
+        List<MangeServer> servers = mangeServerService.selectMangeServerList(serverFilter);
         Map<Long, MangeServer> serversById = new HashMap<>();
         int reportedOnlineAgents = 0;
         for (MangeServer server : servers) {
@@ -59,13 +65,16 @@ public class NetworkMonitorController extends BaseController {
         stats.put("totalServers", servers.size());
         stats.put("reportedOnlineAgents", reportedOnlineAgents);
         stats.put("agentStatusSource", "DATABASE_LAST_PROBE");
-        stats.put("nodeSummary", nodeSummary(tincNodeMangeService.selectTincNodeMangeList(new TincNodeMange())));
+        TincNodeMange nodeFilter = new TincNodeMange();
+        resourceAccess.scope(nodeFilter);
+        stats.put("nodeSummary", nodeSummary(tincNodeMangeService.selectTincNodeMangeList(nodeFilter)));
         stats.put("observedAt", System.currentTimeMillis());
         return AjaxResult.success(stats);
     }
 
     @GetMapping("/single-stats/{networkId}")
     public AjaxResult getSingleStats(@PathVariable("networkId") Long networkId) {
+        resourceAccess.requireNetwork(networkId);
         if (networkId == null || networkId <= 0) return AjaxResult.error("无效的网络 ID");
         TincNetworkMange network = tincNetworkMangeService.selectTincNetworkMangeById(networkId);
         if (network == null) return AjaxResult.error("未找到对应的内网信息");
@@ -77,6 +86,7 @@ public class NetworkMonitorController extends BaseController {
                 : "READY".equals(stats.get("readiness")));
         TincNodeMange filter = new TincNodeMange();
         filter.setNetworkId(networkId);
+        resourceAccess.scope(filter);
         stats.put("nodeSummary", nodeSummary(tincNodeMangeService.selectTincNodeMangeList(filter)));
         // Legacy shapes are retained, with null values to distinguish uncollected from zero.
         stats.put("responseTime", missingValues("value", "progress", "avg", "max", "min"));

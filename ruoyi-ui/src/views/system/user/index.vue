@@ -82,6 +82,7 @@
                     <el-dropdown-menu slot="dropdown">
                       <el-dropdown-item command="handleResetPwd" icon="el-icon-key" v-hasPermi="['system:user:resetPwd']">重置密码</el-dropdown-item>
                       <el-dropdown-item command="handleAuthRole" icon="el-icon-circle-check" v-hasPermi="['system:user:edit']">分配角色</el-dropdown-item>
+                      <el-dropdown-item v-if="Number($store.getters.id) === 1 && Number(scope.row.userId) !== 1" command="handleResourceGrants" icon="el-icon-connection">网络资源授权</el-dropdown-item>
                     </el-dropdown-menu>
                   </el-dropdown>
                 </template>
@@ -179,6 +180,8 @@
       </div>
     </el-dialog>
 
+    <tinc-resource-grant-dialog ref="resourceGrants" />
+
     <!-- 用户导入对话框 -->
     <el-dialog :title="upload.title" :visible.sync="upload.open" width="400px" append-to-body>
       <el-upload ref="upload" :limit="1" accept=".xlsx, .xls" :headers="upload.headers" :action="upload.url + '?updateSupport=' + upload.updateSupport" :disabled="upload.isUploading" :on-progress="handleFileUploadProgress" :on-success="handleFileSuccess" :auto-upload="false" drag>
@@ -206,11 +209,12 @@ import { getToken } from "@/utils/auth"
 import Treeselect from "@riophae/vue-treeselect"
 import "@riophae/vue-treeselect/dist/vue-treeselect.css"
 import { Splitpanes, Pane } from "splitpanes"
+import TincResourceGrantDialog from "@/components/TincResourceGrantDialog"
 import "splitpanes/dist/splitpanes.css"
 
 export default {
   name: "User",
-  components: { Treeselect, Splitpanes, Pane },
+  components: { Treeselect, Splitpanes, Pane, TincResourceGrantDialog },
   data() {
     return {
       // 遮罩层
@@ -440,6 +444,9 @@ export default {
           break
         case "handleAuthRole":
           this.handleAuthRole(row)
+          break
+        case "handleResourceGrants":
+          this.$refs.resourceGrants.open(row)
           break
         default:
           break

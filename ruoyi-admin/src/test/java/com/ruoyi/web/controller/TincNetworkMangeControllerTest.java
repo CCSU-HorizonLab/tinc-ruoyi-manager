@@ -3,6 +3,7 @@ package com.ruoyi.web.controller;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 import com.ruoyi.tinc.runtime.TincRuntimeRouter;
+import com.ruoyi.tinc.security.TincResourceAccess;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.tinc_server.domain.MangeServer;
@@ -28,6 +29,7 @@ class TincNetworkMangeControllerTest {
     @Mock private ITincNetworkMangeService networkService;
     @Mock private IMangeServerService serverService;
     @Mock private TincRuntimeRouter runtimeRouter;
+    @Mock private TincResourceAccess resourceAccess;
 
     private TincNetworkMangeController controller;
     private MockMvc mockMvc;
@@ -39,6 +41,7 @@ class TincNetworkMangeControllerTest {
         ReflectionTestUtils.setField(controller, "tincNetworkMangeService", networkService);
         ReflectionTestUtils.setField(controller, "mangeServerService", serverService);
         ReflectionTestUtils.setField(controller, "tincRuntimeRouter", runtimeRouter);
+        ReflectionTestUtils.setField(controller, "resourceAccess", resourceAccess);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.tinc.security.mapper.TincResourceGrantMapper">
+    <select id="schemaReady" resultType="int">
+        select count(user_id) + count(resource_type) + count(resource_id)
+          + count(granted_by) + count(granted_at)
+        from tinc_resource_grant where 1 = 0
+    </select>
+    <select id="activeUser" resultType="int">
+        select count(*) from sys_user where user_id = #{userId} and status = '0' and del_flag = '0'
+    </select>
+    <select id="lockUser" resultType="long">
+        select user_id from sys_user where user_id = #{userId} and del_flag = '0' for update
+    </select>
+    <select id="canServer" resultType="int">
+        select count(*) from tinc_server s join tinc_resource_grant g
+          on g.resource_type = 'SERVER' and g.resource_id = s.Id
+        where s.Id = #{id} and g.user_id = #{userId}
+    </select>
+    <select id="canNetwork" resultType="int">
+        select count(*) from tinc_network n join tinc_server s on s.Id = n.server_id
+        where n.id = #{id} and exists (select 1 from tinc_resource_grant g where g.user_id = #{userId}
+          and ((g.resource_type = 'SERVER' and g.resource_id = n.server_id)
+            or (g.resource_type = 'NETWORK' and g.resource_id = n.id)))
+    </select>
+    <select id="canNode" resultType="int">
+        select count(*) from tinc_node d join tinc_network n on n.id = d.network_id
+          join tinc_server s on s.Id = n.server_id
+        where d.id = #{id} and exists (select 1 from tinc_resource_grant g where g.user_id = #{userId}
+          and ((g.resource_type = 'SERVER' and g.resource_id = n.server_id)
+            or (g.resource_type = 'NETWORK' and g.resource_id = n.id)))
+    </select>
+    <select id="serverIds" resultType="long">
+        select g.resource_id from tinc_resource_grant g join tinc_server s on s.Id = g.resource_id
+        where g.user_id = #{userId} and g.resource_type = 'SERVER' order by g.resource_id
+    </select>
+    <select id="networkIds" resultType="long">
+        select g.resource_id from tinc_resource_grant g join tinc_network n on n.id = g.resource_id
+        join tinc_server s on s.Id = n.server_id
+        where g.user_id = #{userId} and g.resource_type = 'NETWORK' order by g.resource_id
+    </select>
+    <select id="serverOptions" resultType="map">
+        select Id as id, server_name as serverName from tinc_server order by Id
+    </select>
+    <select id="networkOptions" resultType="map">
+        select n.id, n.network_name as networkName, n.server_id as serverId, s.server_name as serverName
+        from tinc_network n join tinc_server s on s.Id = n.server_id order by n.id
+    </select>
+    <select id="serverExists" resultType="int">select count(*) from tinc_server where Id = #{id}</select>
+    <select id="networkExists" resultType="int">
+        select count(*) from tinc_network n join tinc_server s on s.Id = n.server_id where n.id = #{id}
+    </select>
+    <delete id="deleteForUser">delete from tinc_resource_grant where user_id = #{userId}</delete>
+    <insert id="insert">
+        insert into tinc_resource_grant (user_id, resource_type, resource_id, granted_by)
+        values (#{userId}, #{type}, #{id}, #{grantedBy})
+    </insert>
+</mapper>

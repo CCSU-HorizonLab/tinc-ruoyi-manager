@@ -23,6 +23,10 @@ import com.ruoyi.tinc_server.service.IMangeServerService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.transport.TincConfigTransport;
+import com.ruoyi.tinc.security.TincResourceAccess;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 服务器集群管理Controller
@@ -40,6 +44,33 @@ public class MangeServerController extends BaseController
     @Autowired
     private TincConfigTransport tincConfigTransport;
 
+    @Autowired
+    private TincResourceAccess resourceAccess;
+
+    /** Parent labels are visible for network grants; allocation ranges need a direct server grant. */
+    @PreAuthorize("@ss.hasAnyPermi('manger:manger:list,TincNetworkMange:TincNetworkMange:list,node_mange:node_mange:list')")
+    @GetMapping("/options")
+    public AjaxResult options() {
+        MangeServer query = new MangeServer();
+        resourceAccess.scopeServerOptions(query);
+        List<Map<String, Object>> options = new ArrayList<>();
+        for (MangeServer server : mangeServerService.selectMangeServerList(query)) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("id", server.getId());
+            item.put("serverName", server.getServerName());
+            if (resourceAccess.canAllocateOnServer(server.getId())) {
+                item.put("startSegment", server.getStartSegment());
+                item.put("endSegment", server.getEndSegment());
+                item.put("startPort", server.getStartPort());
+                item.put("endPort", server.getEndPort());
+            }
+            options.add(item);
+        }
+        AjaxResult result = success();
+        result.put("rows", options);
+        return result;
+    }
+
     /**
      * 查询服务器集群管理列表
      * 为前端Tinc网络管理的服务器选项框提供数据来源
@@ -52,6 +83,7 @@ public class MangeServerController extends BaseController
     @GetMapping("/list")
     public TableDataInfo list(MangeServer mangeServer)
     {
+        resourceAccess.scope(mangeServer);
         startPage();
         List<MangeServer> list = mangeServerService.selectMangeServerList(mangeServer);
         return getDataTable(list);
@@ -69,6 +101,7 @@ public class MangeServerController extends BaseController
     @PostMapping("/export")
     public void export(HttpServletResponse response, MangeServer mangeServer)
     {
+        resourceAccess.scope(mangeServer);
         List<MangeServer> list = mangeServerService.selectMangeServerList(mangeServer);
         ExcelUtil<MangeServer> util = new ExcelUtil<MangeServer>(MangeServer.class);
         util.exportExcel(response, list, "服务器集群管理数据");
@@ -85,6 +118,7 @@ public class MangeServerController extends BaseController
     @GetMapping(value = "/{Id}")
     public AjaxResult getInfo(@PathVariable("Id") Long Id)
     {
+        resourceAccess.requireServer(Id);
         return success(mangeServerService.selectMangeServerById(Id));
     }
 
@@ -101,6 +135,8 @@ public class MangeServerController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestBody @Valid MangeServer mangeServer)
     {
+        // A new server has no grantable identity yet; registration remains a super-admin action.
+        resourceAccess.requireAdmin();
         mangeServer.setCreateBy(getUsername());
         try{
             return toAjax(mangeServerService.insertMangeServer(mangeServer));
@@ -122,6 +158,9 @@ public class MangeServerController extends BaseController
     @PutMapping
     public AjaxResult edit(@RequestBody @Valid MangeServer mangeServer)
     {
+        resourceAccess.requireServer(mangeServer.getId());
+        // Changing Agent address/secret/runtime type can redirect control to a different host.
+        resourceAccess.requireAdmin();
         mangeServer.setUpdateBy(getUsername());
         try{
             return toAjax(mangeServerService.updateMangeServer(mangeServer));
@@ -143,6 +182,7 @@ public class MangeServerController extends BaseController
     @DeleteMapping("/{Ids}")
     public AjaxResult remove(@PathVariable Long[] Ids)
     {
+        resourceAccess.requireServers(Ids);
         return toAjax(mangeServerService.deleteMangeServerByIds(Ids));
     }
 
@@ -157,6 +197,7 @@ public class MangeServerController extends BaseController
     @GetMapping("/{id}/tinc/check")
     public AjaxResult checkTincInstalled(@PathVariable("id") Long id)
     {
+        resourceAccess.requireServer(id);
         MangeServer server = mangeServerService.selectMangeServerById(id);
         if (server == null) {
             return error("服务器不存在");
@@ -189,6 +230,8 @@ public class MangeServerController extends BaseController
     @PostMapping("/{id}/tinc/install")
     public AjaxResult installTinc(@PathVariable("id") Long id)
     {
+        resourceAccess.requireServer(id);
+        resourceAccess.requireAdmin();
         MangeServer server = mangeServerService.selectMangeServerById(id);
         if (server == null) {
             return error("服务器不存在");
@@ -208,6 +251,7 @@ public class MangeServerController extends BaseController
     @PostMapping("/{id}/agent/probe")
     public AjaxResult probeAgent(@PathVariable("id") Long id)
     {
+        resourceAccess.requireServer(id);
         MangeServer server = mangeServerService.probeAgent(id);
         return server == null ? error("服务器不存在") : success(server);
     }

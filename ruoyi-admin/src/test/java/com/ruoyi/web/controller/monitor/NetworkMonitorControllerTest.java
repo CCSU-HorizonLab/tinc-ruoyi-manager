@@ -3,6 +3,7 @@ package com.ruoyi.web.controller.monitor;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 import com.ruoyi.tinc.runtime.TincRuntimeRouter;
+import com.ruoyi.tinc.security.TincResourceAccess;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
@@ -32,6 +33,7 @@ class NetworkMonitorControllerTest {
         ReflectionTestUtils.setField(controller, "tincNodeMangeService", nodes);
         ReflectionTestUtils.setField(controller, "mangeServerService", servers);
         ReflectionTestUtils.setField(controller, "runtimeRouter", router);
+        ReflectionTestUtils.setField(controller, "resourceAccess", mock(TincResourceAccess.class));
         when(nodes.selectTincNodeMangeList(any())).thenReturn(Collections.emptyList());
     }
 

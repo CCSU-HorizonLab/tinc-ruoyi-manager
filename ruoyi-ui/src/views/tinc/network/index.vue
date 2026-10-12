@@ -225,20 +225,20 @@
     <el-dialog :title="title" :visible.sync="open" width="520px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="95px">
         <el-form-item label="接入服务器" prop="serverId">
-          <el-select v-model="form.serverId" placeholder="请选择接入服务器" @change="onServerChange" style="width: 100%;">
-            <el-option v-for="server in serverOptions" :key="server.id" :label="server.serverName" :value="server.id"></el-option>
+          <el-select v-model="form.serverId" placeholder="请选择接入服务器" :disabled="form.id != null" @change="onServerChange" style="width: 100%;">
+            <el-option v-for="server in serverOptions" v-if="form.id != null || server.startPort != null" :key="server.id" :label="server.serverName" :value="server.id"></el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="内网名称" prop="networkName">
           <el-input v-model="form.networkName" placeholder="请输入内网名称" :disabled="form.id != null" />
         </el-form-item>
         <el-form-item label="网段" prop="segment">
-          <el-select v-model="form.segment" placeholder="请选择网段" :disabled="!currentServer" style="width: 100%;">
+          <el-select v-model="form.segment" placeholder="请选择网段" :disabled="form.id != null || !currentServer" style="width: 100%;">
             <el-option v-for="segment in segmentOptions" :key="segment.value" :label="segment.label" :value="segment.value"></el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="端口" prop="port">
-          <el-select v-model="form.port" placeholder="请选择端口" :disabled="!currentServer" style="width: 100%;">
+          <el-select v-model="form.port" placeholder="请选择端口" :disabled="form.id != null || !currentServer" style="width: 100%;">
             <el-option v-for="port in portOptions" :key="port.value" :label="port.label" :value="port.value"></el-option>
           </el-select>
         </el-form-item>
@@ -256,7 +256,7 @@
 
 <script>
 import { listNetwork, getNetwork, getNetworkRuntime, delNetwork, addNetwork, updateNetwork } from "@/api/tinc/network"
-import { listServer } from "@/api/tinc/server"
+import { listServerOptions } from "@/api/tinc/server"
 
 export default {
   name: "Network",
@@ -482,7 +482,7 @@ export default {
     },
 
     getServerOptions(){
-      listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
+      listServerOptions().then(response => {
         this.serverOptions = response.rows;
       }).catch(error => {
         console.error('获取服务器列表失败:', error);

@@ -17,6 +17,7 @@
           icon="el-icon-plus"
           size="small"
           @click="handleAdd"
+          v-if="Number($store.getters.id) === 1"
           v-hasPermi="['manger:manger:add']"
         >新增服务器</el-button>
         <el-button
@@ -81,6 +82,7 @@
             icon="el-icon-plus"
             size="mini"
             @click="handleAdd"
+            v-if="Number($store.getters.id) === 1"
             v-hasPermi="['manger:manger:add']"
           >新增</el-button>
         </el-col>
@@ -92,6 +94,7 @@
             size="mini"
             :disabled="single"
             @click="handleUpdate"
+            v-if="Number($store.getters.id) === 1"
             v-hasPermi="['manger:manger:edit']"
           >修改</el-button>
         </el-col>
@@ -200,6 +203,7 @@
               type="text"
               icon="el-icon-edit"
               @click="handleUpdate(scope.row)"
+              v-if="Number($store.getters.id) === 1"
               v-hasPermi="['manger:manger:edit']"
             >修改</el-button>
             <el-button
@@ -227,12 +231,13 @@
               <i class="el-icon-coin"></i>
             </div>
             <div class="tl-empty-title">暂无接入服务器</div>
-            <div class="tl-empty-desc">当前系统尚未注册 Access Server 节点，请点击下方按钮新增接入服务器</div>
+            <div class="tl-empty-desc">当前账号没有可见的接入服务器。请联系超级管理员分配服务器范围；仅获网络授权时请进入内网或节点页面。</div>
             <el-button
               type="primary"
               icon="el-icon-plus"
               size="small"
               @click="handleAdd"
+              v-if="Number($store.getters.id) === 1"
               v-hasPermi="['manger:manger:add']"
             >新增服务器</el-button>
           </div>

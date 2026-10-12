@@ -1,5 +1,10 @@
 import request from '@/utils/request'
 
+// Includes parent labels of explicitly granted networks, without exposing server connection settings.
+export function listServerOptions() {
+  return request({ url: '/tinc/server/options', method: 'get' })
+}
+
 export function listServer(query) {
   return request({
     url: '/tinc/server/list',

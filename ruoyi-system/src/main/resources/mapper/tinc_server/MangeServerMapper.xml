@@ -45,6 +45,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectMangeServerList" parameterType="MangeServer" resultMap="MangeServerResult">
         <include refid="selectMangeServerVo"/>
         <where>  
+            <if test="params.tincScopeUserId != null">
+                and (exists (select 1 from tinc_resource_grant g
+                    where g.user_id = #{params.tincScopeUserId} and g.resource_type = 'SERVER'
+                    and g.resource_id = tinc_server.Id)
+                <if test="params.tincIncludeParentServers == true">
+                    or exists (select 1 from tinc_resource_grant g join tinc_network n on n.id = g.resource_id
+                        where g.user_id = #{params.tincScopeUserId} and g.resource_type = 'NETWORK'
+                        and n.server_id = tinc_server.Id)
+                </if>)
+            </if>
             <if test="serverName != null  and serverName != ''"> and server_name like concat('%', #{serverName}, '%')</if>
             <if test="serverIp != null  and serverIp != ''"> and server_ip = #{serverIp}</if>
             <if test="number != null "> and number = #{number}</if>

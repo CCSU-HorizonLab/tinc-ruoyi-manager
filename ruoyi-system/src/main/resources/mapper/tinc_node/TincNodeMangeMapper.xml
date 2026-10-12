@@ -31,6 +31,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectTincNodeMangeList" parameterType="TincNodeMange" resultMap="TincNodeMangeResult">
         <include refid="selectTincNodeMangeVo"/>
         <where>  
+            <if test="params.tincScopeUserId != null">
+                and exists (select 1 from tinc_network n join tinc_server s on s.Id = n.server_id
+                    join tinc_resource_grant g on g.user_id = #{params.tincScopeUserId}
+                    where n.id = tinc_node.network_id and
+                    ((g.resource_type = 'SERVER' and g.resource_id = n.server_id)
+                    or (g.resource_type = 'NETWORK' and g.resource_id = n.id)))
+            </if>
             <if test="userName != null  and userName != ''"> and user_name like concat('%', #{userName}, '%')</if>
             <if test="tableId != null  and tableId != ''"> and device_id = #{tableId}</if>
             <if test="networkId != null"> and network_id = #{networkId}</if>

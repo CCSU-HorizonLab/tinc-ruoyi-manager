@@ -310,7 +310,7 @@
 
 <script>
 import { listNode, getNode, delNode, addNode, updateNode } from "@/api/tinc/node"
-import { listServer } from "@/api/tinc/server"
+import { listServerOptions } from "@/api/tinc/server"
 import { listNetwork } from "@/api/tinc/network"
 
 export default {
@@ -531,7 +531,7 @@ export default {
     },
 
     getServerOptions() {
-      listServer({ pageNum: 1, pageSize: 10000 }).then(response => {
+      listServerOptions().then(response => {
         this.serverOptions = response.rows
       }).catch(error => {
         console.error('获取服务器列表失败:', error)

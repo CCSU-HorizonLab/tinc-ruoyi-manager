@@ -18,6 +18,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
 import com.ruoyi.tinc_node.service.ITincNodeMangeService;
+import com.ruoyi.tinc.security.TincResourceAccess;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.utils.file.FileUtils;
@@ -38,6 +39,9 @@ public class TincNodeMangeController extends BaseController
     @Autowired
     private ITincNodeMangeService tincNodeMangeService;
 
+    @Autowired
+    private TincResourceAccess resourceAccess;
+
     /**
      * 查询Tinc节点集群管理列表
      */
@@ -45,6 +49,7 @@ public class TincNodeMangeController extends BaseController
     @GetMapping("/list")
     public TableDataInfo list(TincNodeMange tincNodeMange)
     {
+        resourceAccess.scope(tincNodeMange);
         startPage();
         List<TincNodeMange> list = tincNodeMangeService.selectTincNodeMangeList(tincNodeMange);
         return getDataTable(list);
@@ -58,6 +63,7 @@ public class TincNodeMangeController extends BaseController
     @PostMapping("/export")
     public void export(HttpServletResponse response, TincNodeMange tincNodeMange)
     {
+        resourceAccess.scope(tincNodeMange);
         List<TincNodeMange> list = tincNodeMangeService.selectTincNodeMangeList(tincNodeMange);
         ExcelUtil<TincNodeMange> util = new ExcelUtil<TincNodeMange>(TincNodeMange.class);
         util.exportExcel(response, list, "Tinc节点集群管理数据");
@@ -70,6 +76,7 @@ public class TincNodeMangeController extends BaseController
     @GetMapping(value = "/{id}")
     public AjaxResult getInfo(@PathVariable("id") Long id)
     {
+        resourceAccess.requireNode(id);
         return success(tincNodeMangeService.selectTincNodeMangeById(id));
     }
 
@@ -81,10 +88,8 @@ public class TincNodeMangeController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestBody TincNodeMange tincNodeMange)
     {
-        try {
-            tincNodeMange.setCreateBy(getUsername());
-        } catch (Exception ignored) {
-        }
+        resourceAccess.requireNetwork(tincNodeMange.getNetworkId());
+        tincNodeMange.setCreateBy(getUsername());
         int rows = tincNodeMangeService.insertTincNodeMange(tincNodeMange);
         AjaxResult ajax = toAjax(rows);
         if (rows > 0) {
@@ -102,6 +107,7 @@ public class TincNodeMangeController extends BaseController
     @PutMapping("/rotate-access-code/{id}")
     public AjaxResult rotateAccessCode(@PathVariable("id") Long id)
     {
+        resourceAccess.requireNode(id);
         String newAccessCode = tincNodeMangeService.rotateAccessCode(id);
         AjaxResult ajax = AjaxResult.success("接入码轮换成功");
         ajax.put("accessCode", newAccessCode);
@@ -116,10 +122,9 @@ public class TincNodeMangeController extends BaseController
     @PutMapping
     public AjaxResult edit(@RequestBody TincNodeMange tincNodeMange)
     {
-        try {
-            tincNodeMange.setUpdateBy(getUsername());
-        } catch (Exception ignored) {
-        }
+        resourceAccess.requireNode(tincNodeMange.getId());
+        if (tincNodeMange.getNetworkId() != null) resourceAccess.requireNetwork(tincNodeMange.getNetworkId());
+        tincNodeMange.setUpdateBy(getUsername());
         return toAjax(tincNodeMangeService.updateTincNodeMange(tincNodeMange));
     }
 
@@ -131,6 +136,7 @@ public class TincNodeMangeController extends BaseController
 	@DeleteMapping("/{ids}")
     public AjaxResult remove(@PathVariable Long[] ids)
     {
+        resourceAccess.requireNodes(ids);
         return toAjax(tincNodeMangeService.deleteTincNodeMangeByIds(ids));
     }
 
@@ -141,6 +147,10 @@ public class TincNodeMangeController extends BaseController
     @PostMapping("/download/{id}")
     public void download(@PathVariable("id") Long id, HttpServletResponse response) throws IOException
     {
+        resourceAccess.requireNode(id);
+        // Legacy ZIP filenames lack server/network IDs and cannot establish artifact ownership.
+        // Node-token config/download is the supported client flow and is unchanged.
+        resourceAccess.requireAdmin();
         // 1. 查数据库，获取节点信息
         TincNodeMange node = tincNodeMangeService.selectTincNodeMangeById(id);
         if (node == null) {

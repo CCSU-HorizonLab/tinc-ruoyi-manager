@@ -3,6 +3,12 @@ package com.ruoyi.web.controller;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
 import com.ruoyi.tinc_node.service.ITincNodeMangeService;
+import com.ruoyi.tinc.security.TincResourceAccess;
+import com.ruoyi.common.core.domain.model.LoginUser;
+import com.ruoyi.common.core.domain.entity.SysUser;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -14,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.mock;
 
 class TincNodeMangeControllerTest {
     @Mock
@@ -26,7 +33,13 @@ class TincNodeMangeControllerTest {
         MockitoAnnotations.openMocks(this);
         controller = new TincNodeMangeController();
         ReflectionTestUtils.setField(controller, "tincNodeMangeService", nodeService);
+        ReflectionTestUtils.setField(controller, "resourceAccess", mock(TincResourceAccess.class));
+        SysUser user = new SysUser(); user.setUserId(1L); user.setUserName("admin");
+        LoginUser principal = new LoginUser(user, java.util.Collections.emptySet());
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(principal, null));
     }
+
+    @AfterEach void clearAuthentication() { SecurityContextHolder.clearContext(); }
 
     @Test
     void addNodeReturnsGeneratedAccessCodeInAjaxResult() {
