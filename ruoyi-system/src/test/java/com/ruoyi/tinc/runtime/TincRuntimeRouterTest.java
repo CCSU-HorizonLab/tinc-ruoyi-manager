@@ -67,6 +67,36 @@ class TincRuntimeRouterTest {
         verify(client, never()).createNetwork(any(), any());
     }
 
+    @Test
+    void routesLocalAndLegacyServersOnlyToLocalRuntime() {
+        MangeServer localServer = agent(3L, "192.0.2.12");
+        localServer.setRuntimeType("LOCAL");
+        MangeServer legacyServer = agent(4L, "192.0.2.13");
+        legacyServer.setRuntimeType(null);
+        AccessNetworkSpec spec = new AccessNetworkSpec();
+        when(local.createNetwork(spec)).thenReturn(AccessOperationResult.of(true, ready()));
+
+        router.createNetwork(localServer, spec);
+        router.createNetwork(legacyServer, spec);
+
+        verify(local, times(2)).createNetwork(same(spec));
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void unknownExecutionTargetNeverFallsBackToLocalTinc() {
+        MangeServer server = agent(5L, "192.0.2.14");
+        server.setRuntimeType("WIREGUARD");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> router.inspectNetwork(server, "network1"));
+        assertThrows(IllegalArgumentException.class,
+                () -> router.createNetwork(server, new AccessNetworkSpec()));
+        assertThrows(IllegalArgumentException.class,
+                () -> router.upsertPeer(server, "network1", new AccessPeerSpec()));
+        verifyNoInteractions(local, client);
+    }
+
     private MangeServer agent(Long id, String ip) {
         MangeServer s = new MangeServer(); s.setId(id); s.setServerIp(ip); s.setAgentPort(9088);
         s.setAgentSecret("12345678901234567890123456789012"); s.setRuntimeType("AGENT"); return s;

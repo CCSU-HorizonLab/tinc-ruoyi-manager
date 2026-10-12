@@ -10,6 +10,7 @@ import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 import com.ruoyi.tinc_server.domain.MangeServer;
 import org.springframework.stereotype.Service;
 
+/** Routes the Tinc engine to its execution target; runtimeType is not an engine identifier. */
 @Service
 public class TincRuntimeRouter {
     public static final String RUNTIME_LOCAL = "LOCAL";
@@ -54,6 +55,15 @@ public class TincRuntimeRouter {
 
     private TincAccessRuntime runtime(MangeServer server) {
         if (server == null) throw new IllegalArgumentException("接入服务器不能为空");
-        return isAgent(server) ? new RemoteTincAccessRuntime(server, agentClient) : localRuntime;
+        String runtimeType = server.getRuntimeType();
+        if (RUNTIME_AGENT.equalsIgnoreCase(runtimeType)) {
+            return new RemoteTincAccessRuntime(server, agentClient);
+        }
+        // Historical servers without runtime_type were local before this field existed.
+        if (runtimeType == null || runtimeType.trim().isEmpty()
+                || RUNTIME_LOCAL.equalsIgnoreCase(runtimeType)) {
+            return localRuntime;
+        }
+        throw new IllegalArgumentException("UNSUPPORTED_RUNTIME_TYPE: 接入服务器执行位置无效");
     }
 }
