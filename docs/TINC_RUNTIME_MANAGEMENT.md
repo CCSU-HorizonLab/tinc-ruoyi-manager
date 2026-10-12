@@ -22,6 +22,7 @@
 
 - `POST /api/tinc/client/config/download`：认证会话后先 ensure；非 READY 返回 HTTP 503 JSON，READY 才返回 ZIP。
 - `POST /api/tinc/client/key/upload`：校验 sid/token、精确 `Subnet=<node_ip>/32` 与 PKCS#1 RSA；同目录临时文件写入、fsync、原子 rename、0600；内容变化才 HUP，不 restart；随后校验 PID、hosts SHA-256 和 READY，并确认节点“已配置”状态已持久化，最后返回 `text/plain` 的 `server_master`。网关应用失败时恢复旧 hosts 并再次 HUP；相同内容不替换文件、不重复 HUP。若仅数据库状态写入失败，返回 HTTP 503 / `CLIENT_CONFIG_STATE_PERSIST_FAILED`，保留已应用公钥，客户端可幂等重试。
+- `POST /api/tinc/client/status/update` 和 `/keepalive`：要求 Token 绑定 sid，撤销 Token 返回 HTTP 410；仅在节点状态写入成功，或 0 行变更但读回状态一致时返回成功。状态上报是客户端声明，不等同于服务端探测到 VPN 握手。
 - `GET /tinc/network/runtime/{netName}`：需要后台 query 权限，返回运行状态布尔量和脱敏故障信息，不返回密钥、Token 或敏感路径。
 
 运行状态字段：`netName`, `systemdEnabled`, `systemdActive`, `mainPidPresent`, `interfaceName`, `interfacePresent`, `expectedVpnIp`, `actualVpnIp`, `port`, `tcpListening`, `udpListening`, `configValid`, `privateKeyPresent`, `lastReloadResult`, `readiness`, `failureCode`, `failureMessage`。

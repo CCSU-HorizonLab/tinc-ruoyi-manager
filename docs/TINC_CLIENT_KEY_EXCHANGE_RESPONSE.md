@@ -159,19 +159,17 @@ down。该项是待双方验收的运行契约，不是本轮已经完成的实�
 
 ## 4. `/api/tinc/client/status/update`
 
-新客户端当前不得启用此接口。真实代码和无副作用请求确认它仍是匿名遗留实现：
+当前接口使用 `sid + token` 定位已登录节点，不接受客户端传入数据库 `ids`。
+`type` 只接受 `add`/`edit`，`result` 只接受 `success`/`fail`；无效参数返回
+HTTP 400 / `CLIENT_STATUS_INVALID`，失效或跨节点 Token 返回 HTTP 401 /
+`CLIENT_TOKEN_INVALID`，撤销 Token 返回 HTTP 410 / `CLIENT_NODE_REVOKED`。
+状态写入成功，或数据库报告 0 行变更但读回已是期望状态时，才返回
+HTTP 200 / `{"status":"success"}`；写入异常、记录缺失或状态未落库返回
+HTTP 503 / `CLIENT_STATUS_UPDATE_FAILED`。此接口只是客户端状态上报，
+不是 Tinc 握手或实际连通性的服务端证明，也不提供待审批流程。
 
-- `ids` 是 `tinc_node.id` 数据库主键；登录响应不返回该字段，客户端没有可靠来源；
-- 只处理 `type = "add"` 且 `ids` 非空的情况；
-- `result = "success"` 写入“配置成功/在线”，其他任意 result 写入“配置失败/离线”；
-- 不支持待审批状态；
-- 不校验 sid 或 Token，也没有 Token 失效响应；
-- 缺少 ids、节点不存在或 type 不受支持时仍返回 HTTP 200、JSON `{"status":"success"}`；
-- 异常也保持 HTTP 200，仅把 JSON status 改成 `error`。
-
-因此它目前没有可供新客户端依赖的成功、失败、待审批或 Token 失效契约。若未来启用，后端
-必须先改为 sid + Token 鉴权并从绑定节点派生数据库 ID，不能继续让客户端提交裸 `ids`；
-同时需定义真实 HTTP 状态和稳定业务码后再联调。
+`/api/tinc/client/keepalive` 同样校验 sid、Token 和撤销状态；只有在线状态
+已写入或读回确认时才返回成功，否则返回 HTTP 503 / `CLIENT_KEEPALIVE_FAILED`。
 
 ## 5. 2026-09-09 实际验证记录
 

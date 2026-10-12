@@ -30,6 +30,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -549,6 +550,10 @@ public class TincClientApiController {
                 return clientStateError(response, HttpStatus.BAD_REQUEST,
                         "CLIENT_STATUS_INVALID", "状态上报参数无效");
             }
+            if (isRevokedClientToken(token)) {
+                return clientStateError(response, HttpStatus.GONE,
+                        "CLIENT_NODE_REVOKED", "节点已被撤销");
+            }
 
             TincNodeMange node = findTokenBoundNode(findExactNodes(nodeName), token);
             if (node == null) {
@@ -567,7 +572,12 @@ public class TincClientApiController {
                 statusUpdate.setNodeStatus("离线");
             }
 
-            nodeMangeService.updateTincNodeMange(statusUpdate);
+            int updated = nodeMangeService.updateTincNodeMange(statusUpdate);
+            if (updated != 1 && (updated != 0 || !isClientStatusPersisted(node.getId(), statusUpdate))) {
+                log.warn("节点状态上报未持久化: nodeId={}, updatedRows={}", node.getId(), updated);
+                return clientStateError(response, HttpStatus.SERVICE_UNAVAILABLE,
+                        "CLIENT_STATUS_UPDATE_FAILED", "状态上报服务暂时不可用");
+            }
             log.info("节点状态已更新: {}, 状态: {}", node.getNodeName(), statusUpdate.getStatus());
 
             JSONObject resp = new JSONObject();
@@ -611,7 +621,12 @@ public class TincClientApiController {
             TincNodeMange heartbeatUpdate = new TincNodeMange();
             heartbeatUpdate.setId(node.getId());
             heartbeatUpdate.setNodeStatus("在线");
-            nodeMangeService.updateTincNodeMange(heartbeatUpdate);
+            int updated = nodeMangeService.updateTincNodeMange(heartbeatUpdate);
+            if (updated != 1 && (updated != 0 || !isClientStatusPersisted(node.getId(), heartbeatUpdate))) {
+                log.warn("客户端心跳未持久化: nodeId={}, updatedRows={}", node.getId(), updated);
+                return clientStateError(response, HttpStatus.SERVICE_UNAVAILABLE,
+                        "CLIENT_KEEPALIVE_FAILED", "心跳服务暂时不可用");
+            }
 
             result.put("status", "success");
             result.put("msg", "心跳成功");
@@ -772,6 +787,14 @@ public class TincClientApiController {
     private boolean isClientAlreadyConfigured(Long nodeId) {
         TincNodeMange current = nodeMangeService.selectTincNodeMangeById(nodeId);
         return current != null && "已配置".equals(current.getStatus());
+    }
+
+    private boolean isClientStatusPersisted(Long nodeId, TincNodeMange expected) {
+        TincNodeMange current = nodeMangeService.selectTincNodeMangeById(nodeId);
+        return current != null
+                && (expected.getStatus() == null || Objects.equals(expected.getStatus(), current.getStatus()))
+                && (expected.getNodeStatus() == null
+                        || Objects.equals(expected.getNodeStatus(), current.getNodeStatus()));
     }
 
     private TincNodeMange findTokenBoundNode(List<TincNodeMange> candidates, String token) throws Exception {

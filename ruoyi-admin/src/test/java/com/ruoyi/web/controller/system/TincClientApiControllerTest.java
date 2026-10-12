@@ -181,6 +181,41 @@ class TincClientApiControllerTest {
     }
 
     @Test
+    void revokedTokenCannotReportClientStatus() {
+        when(redisCache.getCacheObject(startsWith("tinc:client:revoked-token:"))).thenReturn("5");
+        Map<String, String> request = new HashMap<>();
+        request.put("sid", "new_client"); request.put("token", "revoked-token");
+        request.put("type", "add"); request.put("result", "success");
+
+        JSONObject result = controller.editAddInfo(request, response);
+
+        assertEquals("CLIENT_NODE_REVOKED", result.getString("code"));
+        verify(response).setStatus(410);
+        verifyNoInteractions(nodeService);
+    }
+
+    @Test
+    void statusAndKeepaliveDoNotClaimSuccessWhenDatabaseStateIsMissing() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        node.setStatus("配置成功");
+        node.setNodeStatus("在线");
+        when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
+                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
+        when(nodeService.updateTincNodeMange(any())).thenReturn(0);
+        when(nodeService.selectTincNodeMangeById(5L)).thenReturn(node, null, node, null);
+        Map<String, String> request = new HashMap<>();
+        request.put("sid", "new_client"); request.put("token", "token");
+        request.put("type", "add"); request.put("result", "success");
+
+        assertEquals("success", controller.editAddInfo(request, response).getString("status"));
+        assertEquals("CLIENT_STATUS_UPDATE_FAILED", controller.editAddInfo(request, response).getString("code"));
+        assertEquals("success", controller.keepAlive(request, response).getString("status"));
+        assertEquals("CLIENT_KEEPALIVE_FAILED", controller.keepAlive(request, response).getString("code"));
+        verify(response, times(2)).setStatus(503);
+    }
+
+    @Test
     void changedPublicKeyMustNotRehashPasswordOrRevokeSession() {
         TincNodeMangeMapper mapper = mock(TincNodeMangeMapper.class);
         TincNetworkMangeMapper networks = mock(TincNetworkMangeMapper.class);
