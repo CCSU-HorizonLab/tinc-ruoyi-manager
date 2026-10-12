@@ -98,6 +98,17 @@ class TincClientApiControllerTest {
     }
 
     @Test
+    void loginRejectsSignedIpv4OctetsBeforeIssuingToken() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.+211");
+        when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+
+        JSONObject result = controller.login(loginRequest("new_client", "secret"), response);
+
+        assertEquals("CLIENT_NETWORK_IP_INVALID", result.getString("code"));
+        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+    }
+
+    @Test
     void keyUploadRoutesOnlyToNetworkBoundAccessServerAndKeepsProtocol() {
         TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
         TincNetworkMange network = network(8L, "new_network");

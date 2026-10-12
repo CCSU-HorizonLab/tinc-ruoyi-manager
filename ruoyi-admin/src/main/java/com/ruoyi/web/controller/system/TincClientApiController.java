@@ -763,8 +763,7 @@ public class TincClientApiController {
         }
         for (String part : parts) {
             try {
-                if (part.isEmpty() || (part.length() > 1 && part.startsWith("0"))
-                        || Integer.parseInt(part) > 255) {
+                if (!part.matches("0|[1-9][0-9]{0,2}") || Integer.parseInt(part) > 255) {
                     return false;
                 }
             } catch (NumberFormatException e) {

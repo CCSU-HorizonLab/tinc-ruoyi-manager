@@ -25,5 +25,11 @@ class TincModelValidatorTest {
                 () -> TincModelValidator.requireNodeIp("10.0.11.1", "10.0.11"));
         assertThrows(IllegalArgumentException.class,
                 () -> TincModelValidator.requireNodeIp("10.0.11.211/32", "10.0.11"));
+        assertThrows(IllegalArgumentException.class,
+                () -> TincModelValidator.requireSegment("+10.0.11"));
+        assertThrows(IllegalArgumentException.class,
+                () -> TincModelValidator.requireNodeIp("10.0.11.+211", "10.0.11"));
+        assertThrows(IllegalArgumentException.class,
+                () -> TincModelValidator.requireNodeIp("10.0.11.-1", "10.0.11"));
     }
 }

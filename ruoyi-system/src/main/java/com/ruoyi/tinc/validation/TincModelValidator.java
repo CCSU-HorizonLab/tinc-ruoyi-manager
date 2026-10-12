@@ -77,7 +77,7 @@ public final class TincModelValidator {
 
     private static void requireIpv4Octet(String value, String field) {
         try {
-            if (value.isEmpty() || (value.length() > 1 && value.startsWith("0"))) {
+            if (!value.matches("0|[1-9][0-9]{0,2}")) {
                 throw new NumberFormatException();
             }
             int octet = Integer.parseInt(value);
