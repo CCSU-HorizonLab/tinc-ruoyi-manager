@@ -24,6 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -83,6 +84,25 @@ class TincClientApiControllerTest {
         verify(networkService).selectTincNetworkMangeById(8L);
         verify(networkService, never()).selectByNetworkNameExact(anyString());
         verify(redisCache).setCacheObject(startsWith("tinc:client:token:"), eq("5"), eq(30), any());
+    }
+
+    @Test
+    void loginReturnsOnlyAuthorizedPeerRoutesFromTheSameNetwork() {
+        TincNodeMange current = node(5L, 8L, "client_a", "secret", "office", "10.0.11.211");
+        TincNodeMange peerB = node(6L, 8L, "client_b", "secret", "office", "10.0.11.212");
+        TincNodeMange peerC = node(7L, 8L, "client_c", "secret", "office", "10.0.11.210");
+        TincNodeMange invalid = node(8L, 8L, "client_d", "secret", "office", "10.0.11.+213");
+        when(nodeService.selectByNodeNameExact("client_a")).thenReturn(Collections.singletonList(current));
+        when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network(8L, "office"));
+        when(nodeService.selectTincNodeMangeList(any())).thenReturn(
+                Arrays.asList(current, peerB, peerC, invalid));
+
+        JSONObject result = controller.login(loginRequest("client_a", "secret"), response);
+
+        assertEquals(1, result.getIntValue("status"));
+        assertEquals(Arrays.asList("10.0.11.210/32", "10.0.11.212/32"),
+                result.getJSONArray("allowed_routes").toJavaList(String.class));
+        verify(nodeService).selectTincNodeMangeList(argThat(query -> Long.valueOf(8L).equals(query.getNetworkId())));
     }
 
     @Test
@@ -210,6 +230,27 @@ class TincClientApiControllerTest {
         verify(redisCache).expire(startsWith("tinc:client:token:"), eq(30L), eq(TimeUnit.MINUTES));
         verify(redisCache).expire(eq("tinc:client:node-tokens:5"), eq(30L), eq(TimeUnit.MINUTES));
         verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+    }
+
+    @Test
+    void keepaliveRefreshesTheAuthorizedPeerRouteSnapshot() {
+        TincNodeMange current = node(5L, 8L, "client_a", "secret", "office", "10.0.11.211");
+        TincNodeMange peer = node(6L, 8L, "client_b", "secret", "office", "10.0.11.212");
+        when(nodeService.selectByNodeNameExact("client_a")).thenReturn(Collections.singletonList(current));
+        when(nodeService.selectTincNodeMangeList(any())).thenReturn(Arrays.asList(current, peer));
+        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
+                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
+        when(redisCache.expire(anyString(), eq(30L), eq(TimeUnit.MINUTES))).thenReturn(true);
+        when(nodeService.updateTincNodeMange(any())).thenReturn(1);
+        Map<String, String> request = new HashMap<>();
+        request.put("sid", "client_a");
+        request.put("token", "token");
+
+        JSONObject result = controller.keepAlive(request, response);
+
+        assertEquals("success", result.getString("status"));
+        assertEquals(Collections.singletonList("10.0.11.212/32"),
+                result.getJSONArray("allowed_routes").toJavaList(String.class));
     }
 
     @Test

@@ -26,11 +26,14 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -62,6 +65,7 @@ public class TincClientApiController {
     private static final String CLIENT_NODE_TOKEN_PREFIX = "tinc:client:node-tokens:";
     private static final String CLIENT_REVOKED_TOKEN_PREFIX = "tinc:client:revoked-token:";
     private static final int CLIENT_TOKEN_EXPIRATION_MINUTES = 30;
+    private static final int MAX_CLIENT_ALLOWED_ROUTES = 1024;
     private static final int MAX_KEY_UPLOAD_BODY_BYTES = 64 * 1024;
     private static final SecureRandom CLIENT_TOKEN_RANDOM = new SecureRandom();
 
@@ -219,6 +223,7 @@ public class TincClientApiController {
                 return result;
             }
 
+            List<String> allowedRoutes = buildAllowedRoutes(node, network.getId());
             loginLimiter.clearCredential(loginTarget);
             String clientToken = createClientToken(node);
             result.put("status", 1);
@@ -230,6 +235,7 @@ public class TincClientApiController {
             result.put("node_id", node.getId());
             result.put("msg", "登录成功");
             result.put("node_ip", node.getNetworkIp());
+            result.put("allowed_routes", allowedRoutes);
 
             log.info("客户端登录成功: nodeId={}, networkId={}", node.getId(), network.getId());
         } catch (TincClientLoginLimiter.LimiterUnavailableException e) {
@@ -636,8 +642,15 @@ public class TincClientApiController {
                         "CLIENT_KEEPALIVE_FAILED", "心跳服务暂时不可用");
             }
 
+            Long networkId = node.getNetworkId();
+            if (networkId == null) {
+                TincNetworkMange network = resolveNetworkForNode(node);
+                networkId = network == null ? null : network.getId();
+            }
+            List<String> allowedRoutes = buildAllowedRoutes(node, networkId);
             result.put("status", "success");
             result.put("msg", "心跳成功");
+            result.put("allowed_routes", allowedRoutes);
             log.info("节点 [{}] 在线状态已刷新", nodeName);
         } catch (Exception e) {
             log.error("心跳接口异常，错误类型={}", e.getClass().getSimpleName());
@@ -836,6 +849,35 @@ public class TincClientApiController {
         boolean indexRenewed = redisCache.expire(CLIENT_NODE_TOKEN_PREFIX + node.getId(),
                 CLIENT_TOKEN_EXPIRATION_MINUTES, TimeUnit.MINUTES);
         return tokenRenewed && indexRenewed;
+    }
+
+    private List<String> buildAllowedRoutes(TincNodeMange currentNode, Long networkId) {
+        if (currentNode == null || currentNode.getId() == null || networkId == null) {
+            throw new IllegalStateException("客户端节点缺少稳定网络身份");
+        }
+        TincNodeMange query = new TincNodeMange();
+        query.setNetworkId(networkId);
+        List<TincNodeMange> members = nodeMangeService.selectTincNodeMangeList(query);
+        if (members == null || members.isEmpty()) {
+            return Collections.emptyList();
+        }
+        TreeSet<String> routes = new TreeSet<>();
+        for (TincNodeMange member : members) {
+            if (member == null || Objects.equals(currentNode.getId(), member.getId())) {
+                continue;
+            }
+            String peerIp = member.getNetworkIp();
+            if (!isValidIpv4(peerIp) || Objects.equals(currentNode.getNetworkIp(), peerIp)) {
+                log.warn("跳过无效的客户端对端路由: networkId={}, nodeId={}", networkId,
+                        member.getId());
+                continue;
+            }
+            routes.add(peerIp + "/32");
+            if (routes.size() > MAX_CLIENT_ALLOWED_ROUTES) {
+                throw new IllegalStateException("客户端对端路由数量超过安全上限");
+            }
+        }
+        return new ArrayList<>(routes);
     }
 
     private TincNetworkMange findExactNetwork(String networkName) {
