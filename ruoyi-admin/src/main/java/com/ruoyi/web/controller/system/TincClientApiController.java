@@ -617,6 +617,14 @@ public class TincClientApiController {
                 return clientStateError(response, HttpStatus.UNAUTHORIZED,
                         "CLIENT_TOKEN_INVALID", "客户端会话无效或已过期");
             }
+            if (!renewClientTokenLease(node, token)) {
+                if (isRevokedClientToken(token)) {
+                    return clientStateError(response, HttpStatus.GONE,
+                            "CLIENT_NODE_REVOKED", "节点已被撤销");
+                }
+                return clientStateError(response, HttpStatus.UNAUTHORIZED,
+                        "CLIENT_TOKEN_INVALID", "客户端会话无效或已过期");
+            }
 
             TincNodeMange heartbeatUpdate = new TincNodeMange();
             heartbeatUpdate.setId(node.getId());
@@ -816,6 +824,18 @@ public class TincClientApiController {
     private boolean isRevokedClientToken(String token) throws Exception {
         return StringUtils.isNotEmpty(token)
                 && redisCache.getCacheObject(CLIENT_REVOKED_TOKEN_PREFIX + sha256Hex(token)) != null;
+    }
+
+    private boolean renewClientTokenLease(TincNodeMange node, String token) throws Exception {
+        if (node == null || node.getId() == null || StringUtils.isEmpty(token)) {
+            return false;
+        }
+        String tokenHash = sha256Hex(token);
+        boolean tokenRenewed = redisCache.expire(CLIENT_TOKEN_PREFIX + tokenHash,
+                CLIENT_TOKEN_EXPIRATION_MINUTES, TimeUnit.MINUTES);
+        boolean indexRenewed = redisCache.expire(CLIENT_NODE_TOKEN_PREFIX + node.getId(),
+                CLIENT_TOKEN_EXPIRATION_MINUTES, TimeUnit.MINUTES);
+        return tokenRenewed && indexRenewed;
     }
 
     private TincNetworkMange findExactNetwork(String networkName) {

@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
@@ -192,6 +193,49 @@ class TincClientApiControllerTest {
     }
 
     @Test
+    void keepaliveRenewsTheExistingTokenLeaseWithoutRecreatingIt() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
+                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
+        when(redisCache.expire(anyString(), eq(30L), eq(TimeUnit.MINUTES))).thenReturn(true);
+        when(nodeService.updateTincNodeMange(any())).thenReturn(1);
+        Map<String, String> request = new HashMap<>();
+        request.put("sid", "new_client");
+        request.put("token", "token");
+
+        JSONObject result = controller.keepAlive(request, response);
+
+        assertEquals("success", result.getString("status"));
+        verify(redisCache).expire(startsWith("tinc:client:token:"), eq(30L), eq(TimeUnit.MINUTES));
+        verify(redisCache).expire(eq("tinc:client:node-tokens:5"), eq(30L), eq(TimeUnit.MINUTES));
+        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+    }
+
+    @Test
+    void keepaliveDoesNotResurrectATokenRemovedDuringRenewal() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+        when(redisCache.getCacheObject(startsWith("tinc:client:token:"))).thenReturn("5");
+        when(redisCache.getCacheObject(startsWith("tinc:client:revoked-token:")))
+                .thenReturn(null, "5");
+        when(redisCache.expire(startsWith("tinc:client:token:"), eq(30L), eq(TimeUnit.MINUTES)))
+                .thenReturn(false);
+        when(redisCache.expire(eq("tinc:client:node-tokens:5"), eq(30L), eq(TimeUnit.MINUTES)))
+                .thenReturn(false);
+        Map<String, String> request = new HashMap<>();
+        request.put("sid", "new_client");
+        request.put("token", "token");
+
+        JSONObject result = controller.keepAlive(request, response);
+
+        assertEquals("CLIENT_NODE_REVOKED", result.getString("code"));
+        verify(response).setStatus(410);
+        verify(nodeService, never()).updateTincNodeMange(any());
+        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+    }
+
+    @Test
     void revokedTokenCannotReportClientStatus() {
         when(redisCache.getCacheObject(startsWith("tinc:client:revoked-token:"))).thenReturn("5");
         Map<String, String> request = new HashMap<>();
@@ -213,6 +257,7 @@ class TincClientApiControllerTest {
         when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
         when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
                 ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
+        when(redisCache.expire(anyString(), eq(30L), eq(TimeUnit.MINUTES))).thenReturn(true);
         when(nodeService.updateTincNodeMange(any())).thenReturn(0);
         when(nodeService.selectTincNodeMangeById(5L)).thenReturn(node, null, node, null);
         Map<String, String> request = new HashMap<>();
