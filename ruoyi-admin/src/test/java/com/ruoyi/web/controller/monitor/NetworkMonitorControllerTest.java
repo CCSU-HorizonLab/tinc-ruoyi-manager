@@ -1,6 +1,9 @@
 package com.ruoyi.web.controller.monitor;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.platform.ManagedResourceId;
 import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 import com.ruoyi.tinc.runtime.TincRuntimeRouter;
 import com.ruoyi.tinc.security.TincResourceAccess;
@@ -59,6 +62,10 @@ class NetworkMonitorControllerTest {
         assertNull(data.get("averageResponseTime"));
         assertNull(data.get("healthScore"));
         assertEquals(false, data.get("telemetryCollected"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> first = (Map<String, Object>) ((java.util.List<?>) data.get("networks")).get(0);
+        assertEquals(ManagedResourceId.of("tinc", "overlay-network", 11L), first.get("resource"));
+        assertEquals(11L, first.get("networkId"));
         verify(router).inspectNetwork(serverA, "DEV_A");
         verify(router).inspectNetwork(serverB, "DEV_B");
         verify(router).inspectNetwork(serverLocal, "new_network");
@@ -74,6 +81,11 @@ class NetworkMonitorControllerTest {
         Map<String, Object> data = data(controller.getSingleStats(11L));
         assertEquals("UNKNOWN", data.get("readiness"));
         assertEquals("STATUS_QUERY_FAILED", data.get("failureCode"));
+        assertEquals(ManagedResourceId.of("tinc", "overlay-network", 11L), data.get("resource"));
+        JsonNode resourceJson = new ObjectMapper().valueToTree(data.get("resource"));
+        assertEquals("tinc", resourceJson.path("engineId").asText());
+        assertEquals("overlay-network", resourceJson.path("resourceType").asText());
+        assertEquals(11L, resourceJson.path("resourceId").asLong());
         assertNull(data.get("isOnline"));
         assertFalse(data.toString().contains("test-secret"));
         assertFalse(data.toString().contains("/secret/path"));

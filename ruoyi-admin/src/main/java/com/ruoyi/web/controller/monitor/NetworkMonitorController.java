@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.platform.ManagedResourceId;
 import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 import com.ruoyi.tinc.runtime.TincRuntimeRouter;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
@@ -99,6 +100,8 @@ public class NetworkMonitorController extends BaseController {
     private Map<String, Object> inspect(TincNetworkMange network, MangeServer server) {
         Map<String, Object> result = new HashMap<>();
         result.put("networkId", network.getId());
+        // Add a platform identity without changing the legacy Tinc networkId contract.
+        result.put("resource", ManagedResourceId.of("tinc", "overlay-network", network.getId()));
         result.put("serverId", network.getServerId());
         result.put("networkName", network.getNetworkName());
         result.put("readiness", "UNKNOWN");
