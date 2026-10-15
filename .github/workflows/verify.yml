@@ -21,6 +21,12 @@ jobs:
           distribution: temurin
           java-version: '8'
           cache: maven
+      - name: Verify Management schema preflight gate
+        run: |
+          bash -n deploy/server/preflight-management-schema.sh
+          bash -n deploy/server/tests/mock-mysql.sh
+          bash -n deploy/server/tests/test-preflight-management-schema.sh
+          bash deploy/server/tests/test-preflight-management-schema.sh
       - name: Test and package all Maven modules
         run: mvn -B -ntp verify
 
