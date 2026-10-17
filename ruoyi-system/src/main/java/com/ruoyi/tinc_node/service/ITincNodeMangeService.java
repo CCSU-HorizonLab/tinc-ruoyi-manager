@@ -68,6 +68,9 @@ public interface ITincNodeMangeService
     /** 公钥应用成功后仅标记配置状态，不修改身份、密码或撤销会话。 */
     public int markClientConfigured(Long nodeId);
 
+    /** Update only client-reported state; denied nodes must never be re-enabled by a late heartbeat. */
+    public int updateClientStatus(Long nodeId, String configStatus, String onlineStatus);
+
     /**
      * 批量删除Tinc节点集群管理
      * 

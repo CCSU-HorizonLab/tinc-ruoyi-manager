@@ -1,13 +1,13 @@
 package com.ruoyi.tinc_node.service.impl;
 
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import java.security.SecureRandom;
 import com.ruoyi.common.utils.DateUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.security.TincNodePasswordCodec;
-import com.ruoyi.common.core.redis.RedisCache;
+import com.ruoyi.tinc.session.TincClientSessionStore;
+import com.ruoyi.tinc.session.TincClientLifecycleLocks;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.mapper.TincNetworkMangeMapper;
 import com.ruoyi.tinc_server.domain.MangeServer;
@@ -43,13 +43,8 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     @Autowired
     private TincRuntimeRouter tincRuntimeRouter;
 
-    @Autowired(required = false)
-    private RedisCache redisCache;
-
-    private static final String CLIENT_TOKEN_PREFIX = "tinc:client:token:";
-    private static final String CLIENT_NODE_TOKEN_PREFIX = "tinc:client:node-tokens:";
-    private static final String CLIENT_REVOKED_TOKEN_PREFIX = "tinc:client:revoked-token:";
-    private static final int REVOKED_TOKEN_TOMBSTONE_HOURS = 24;
+    @Autowired
+    private TincClientSessionStore clientSessionStore;
 
     private static final String ACCESS_CODE_CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
@@ -107,7 +102,7 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         if (tincNodeMangeMapper.updateAccessCode(nodeId, newCode, DateUtils.getNowDate()) != 1) {
             throw new IllegalStateException("接入码轮换失败，节点状态已变化");
         }
-        revokeClientTokens(nodeId);
+        clientSessionStore.revokeNode(nodeId, false);
         log.info("节点接入码已轮换: nodeId={}, nodeName={}", nodeId, node.getNodeName());
         return newCode;
     }
@@ -171,6 +166,14 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         return tincNodeMangeMapper.markClientConfigured(nodeId);
     }
 
+    @Override
+    public int updateClientStatus(Long nodeId, String configStatus, String onlineStatus) {
+        if (nodeId == null || nodeId <= 0 || (configStatus == null && onlineStatus == null)) {
+            throw new IllegalArgumentException("客户端状态更新参数无效");
+        }
+        return tincNodeMangeMapper.updateClientStatus(nodeId, configStatus, onlineStatus);
+    }
+
     /** Update metadata and rotate the login credential only when a new password is supplied. */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -199,8 +202,12 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
             tincNodeMange.setPassword(TincNodePasswordCodec.encode(tincNodeMange.getPassword()));
         }
         int updated = tincNodeMangeMapper.updateTincNodeMange(tincNodeMange);
-        if (updated > 0 && passwordChanged) {
-            revokeClientTokens(tincNodeMange.getId());
+        boolean denied = isDenyState(tincNodeMange.getStatus())
+                || isDenyState(tincNodeMange.getNodeStatus());
+        if (updated > 0 && denied) {
+            revokeRuntimeNode(oldNode, false);
+        } else if (updated > 0 && passwordChanged) {
+            clientSessionStore.revokeNode(tincNodeMange.getId(), false);
         }
         return updated;
     }
@@ -214,7 +221,7 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         for (Long id : ids) {
             TincNodeMange node = tincNodeMangeMapper.selectTincNodeMangeById(id);
             if (node != null) {
-                revokeRuntimeNode(node);
+                revokeRuntimeNode(node, true);
             }
         }
         return tincNodeMangeMapper.deleteTincNodeMangeByIds(ids);
@@ -225,7 +232,7 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
     public int deleteTincNodeMangeById(Long id) {
         TincNodeMange node = tincNodeMangeMapper.selectTincNodeMangeById(id);
         if (node != null) {
-            revokeRuntimeNode(node);
+            revokeRuntimeNode(node, true);
         }
         return tincNodeMangeMapper.deleteTincNodeMangeById(id);
     }
@@ -321,26 +328,29 @@ public class TincNodeMangeServiceImpl implements ITincNodeMangeService
         }
     }
 
-    private void revokeRuntimeNode(TincNodeMange node) {
+    private void revokeRuntimeNode(TincNodeMange node, boolean deleting) {
+        java.util.concurrent.locks.ReentrantLock nodeLock = TincClientLifecycleLocks.forNode(node.getId());
+        nodeLock.lock();
+        try {
         TincNetworkMange network = resolveNetwork(node);
         MangeServer server = requireServer(network);
-        tincRuntimeRouter.deletePeer(server, network.getNetworkName(), node.getNodeName());
-        revokeClientTokens(node.getId());
+        // Deny new sessions and invalidate old ones before touching the gateway or database.
+        clientSessionStore.revokeNode(node.getId(), deleting);
+        com.ruoyi.common.tinc.access.AccessOperationResult result =
+                tincRuntimeRouter.deletePeer(server, network.getNetworkName(), node.getNodeName());
+        if (result == null || !"OK".equals(result.getStatus())
+                || result.getNetworkStatus() == null || !result.getNetworkStatus().isReady()) {
+            throw new IllegalStateException("TINC_NODE_REVOKE_RUNTIME_FAILED: 网关撤销未确认，节点记录保留");
+        }
         log.info("Tinc 节点运行授权已撤销: id={}, nodeName={}, netName={}",
                 node.getId(), node.getNodeName(), network.getNetworkName());
+        } finally {
+            nodeLock.unlock();
+        }
     }
 
-    private void revokeClientTokens(Long nodeId) {
-        if (redisCache == null || nodeId == null) return;
-        String indexKey = CLIENT_NODE_TOKEN_PREFIX + nodeId;
-        java.util.Set<String> hashes = redisCache.getCacheSet(indexKey);
-        if (hashes != null) {
-            for (String hash : hashes) {
-                redisCache.setCacheObject(CLIENT_REVOKED_TOKEN_PREFIX + hash, String.valueOf(nodeId),
-                        REVOKED_TOKEN_TOMBSTONE_HOURS, TimeUnit.HOURS);
-                redisCache.deleteObject(CLIENT_TOKEN_PREFIX + hash);
-            }
-        }
-        redisCache.deleteObject(indexKey);
+    private static boolean isDenyState(String state) {
+        return "禁用".equals(state) || "已撤销".equals(state)
+                || "disabled".equalsIgnoreCase(state) || "revoked".equalsIgnoreCase(state);
     }
 }

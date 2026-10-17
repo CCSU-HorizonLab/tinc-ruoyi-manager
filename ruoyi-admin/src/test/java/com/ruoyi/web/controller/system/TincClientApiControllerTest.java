@@ -1,7 +1,7 @@
 package com.ruoyi.web.controller.system;
 
 import com.alibaba.fastjson2.JSONObject;
-import com.ruoyi.common.core.redis.RedisCache;
+import com.ruoyi.tinc.session.TincClientSessionStore;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
@@ -28,7 +28,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
@@ -40,7 +39,7 @@ import static org.mockito.Mockito.*;
 class TincClientApiControllerTest {
     @Mock private ITincNetworkMangeService networkService;
     @Mock private ITincNodeMangeService nodeService;
-    @Mock private RedisCache redisCache;
+    @Mock private TincClientSessionStore sessionStore;
     @Mock private IMangeServerService serverService;
     @Mock private TincRuntimeRouter runtimeRouter;
     @Mock private TincClientLoginLimiter loginLimiter;
@@ -53,11 +52,19 @@ class TincClientApiControllerTest {
         controller = new TincClientApiController();
         ReflectionTestUtils.setField(controller, "networkMangeService", networkService);
         ReflectionTestUtils.setField(controller, "nodeMangeService", nodeService);
-        ReflectionTestUtils.setField(controller, "redisCache", redisCache);
+        ReflectionTestUtils.setField(controller, "sessionStore", sessionStore);
+        TincClientRouteSnapshot snapshot = new TincClientRouteSnapshot();
+        ReflectionTestUtils.setField(snapshot, "nodeService", nodeService);
+        ReflectionTestUtils.setField(controller, "routeSnapshot", snapshot);
         ReflectionTestUtils.setField(controller, "mangeServerService", serverService);
         ReflectionTestUtils.setField(controller, "tincRuntimeRouter", runtimeRouter);
         ReflectionTestUtils.setField(controller, "loginLimiter", loginLimiter);
         when(loginLimiter.consume(anyString())).thenReturn(0L);
+        when(nodeService.selectTincNodeMangeList(any())).thenReturn(Collections.emptyList());
+        when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network(8L, "new_network"));
+        when(sessionStore.issue(anyLong())).thenReturn("token");
+        when(sessionStore.isValid(anyLong(), anyString())).thenReturn(true);
+        when(sessionStore.renew(anyLong(), anyString())).thenReturn(true);
         when(nodeService.verifyClientPassword(any(TincNodeMange.class), anyString()))
                 .thenAnswer(invocation -> {
                     TincNodeMange node = invocation.getArgument(0);
@@ -81,9 +88,13 @@ class TincClientApiControllerTest {
         assertEquals("10.0.11.211", result.getString("node_ip"));
         assertEquals(5L, result.getLongValue("node_id"));
         assertEquals(8L, result.getLongValue("network_id"));
+        assertEquals(Collections.singletonList("10.0.11.1/32"),
+                result.getJSONArray("allowed_routes").toJavaList(String.class));
+        assertTrue(result.getString("route_revision").startsWith("routes-"));
+        assertEquals(120, result.getIntValue("route_lease_seconds"));
         verify(networkService).selectTincNetworkMangeById(8L);
         verify(networkService, never()).selectByNetworkNameExact(anyString());
-        verify(redisCache).setCacheObject(startsWith("tinc:client:token:"), eq("5"), eq(30), any());
+        verify(sessionStore).issue(5L);
     }
 
     @Test
@@ -100,7 +111,7 @@ class TincClientApiControllerTest {
         JSONObject result = controller.login(loginRequest("client_a", "secret"), response);
 
         assertEquals(1, result.getIntValue("status"));
-        assertEquals(Arrays.asList("10.0.11.210/32", "10.0.11.212/32"),
+        assertEquals(Arrays.asList("10.0.11.1/32", "10.0.11.210/32", "10.0.11.212/32"),
                 result.getJSONArray("allowed_routes").toJavaList(String.class));
         verify(nodeService).selectTincNodeMangeList(argThat(query -> Long.valueOf(8L).equals(query.getNetworkId())));
     }
@@ -126,7 +137,7 @@ class TincClientApiControllerTest {
         JSONObject result = controller.login(loginRequest("new_client", "secret"), response);
 
         assertEquals("CLIENT_NETWORK_IP_INVALID", result.getString("code"));
-        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+        verify(sessionStore, never()).issue(anyLong());
     }
 
     @Test
@@ -139,10 +150,7 @@ class TincClientApiControllerTest {
         String publicKey = RsaUtils.generateKeys().get("publicKey");
         String serverMaster = "Address = 203.0.113.10\nPort = 600\nSubnet = 10.0.11.1/32\n\n" + publicKey;
         when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
-        when(redisCache.getCacheObject(anyString())).thenAnswer(invocation -> {
-            String key = invocation.getArgument(0);
-            return key.startsWith("tinc:client:token:") ? "5" : null;
-        });
+        when(nodeService.selectTincNodeMangeById(5L)).thenReturn(node);
         when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network);
         when(serverService.selectMangeServerById(3L)).thenReturn(server);
         when(runtimeRouter.readServerMaster(server, "new_network")).thenReturn(serverMaster);
@@ -175,8 +183,6 @@ class TincClientApiControllerTest {
         server.setId(3L); server.setServerIp("203.0.113.10");
         String publicKey = RsaUtils.generateKeys().get("publicKey");
         when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
-        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
-                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
         when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network);
         when(serverService.selectMangeServerById(3L)).thenReturn(server);
         when(runtimeRouter.readServerMaster(server, "new_network")).thenReturn(
@@ -185,7 +191,7 @@ class TincClientApiControllerTest {
         when(runtimeRouter.upsertPeer(eq(server), eq("new_network"), any()))
                 .thenReturn(AccessOperationResult.of(false, ready));
         when(nodeService.markClientConfigured(5L)).thenReturn(0);
-        when(nodeService.selectTincNodeMangeById(5L)).thenReturn(node, null);
+        when(nodeService.selectTincNodeMangeById(5L)).thenReturn(node, node, node, null);
         JSONObject request = new JSONObject();
         request.put("sid", "new_client"); request.put("token", "token");
         request.put("action", "exchangeFile");
@@ -201,7 +207,7 @@ class TincClientApiControllerTest {
 
     @Test
     void revokedTokenReturnsStableCodeBeforeNodeLookup() {
-        when(redisCache.getCacheObject(startsWith("tinc:client:revoked-token:"))).thenReturn("5");
+        when(sessionStore.isRevoked("revoked-token")).thenReturn(true);
         Map<String, String> request = new HashMap<>();
         request.put("sid", "new_client");
         request.put("token", "revoked-token");
@@ -216,10 +222,7 @@ class TincClientApiControllerTest {
     void keepaliveRenewsTheExistingTokenLeaseWithoutRecreatingIt() {
         TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
         when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
-        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
-                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
-        when(redisCache.expire(anyString(), eq(30L), eq(TimeUnit.MINUTES))).thenReturn(true);
-        when(nodeService.updateTincNodeMange(any())).thenReturn(1);
+        when(nodeService.updateClientStatus(anyLong(), any(), any())).thenReturn(1);
         Map<String, String> request = new HashMap<>();
         request.put("sid", "new_client");
         request.put("token", "token");
@@ -227,9 +230,10 @@ class TincClientApiControllerTest {
         JSONObject result = controller.keepAlive(request, response);
 
         assertEquals("success", result.getString("status"));
-        verify(redisCache).expire(startsWith("tinc:client:token:"), eq(30L), eq(TimeUnit.MINUTES));
-        verify(redisCache).expire(eq("tinc:client:node-tokens:5"), eq(30L), eq(TimeUnit.MINUTES));
-        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+        assertTrue(result.getString("route_revision").startsWith("routes-"));
+        assertEquals(120, result.getIntValue("route_lease_seconds"));
+        verify(sessionStore).renew(5L, "token");
+        verify(sessionStore, never()).issue(anyLong());
     }
 
     @Test
@@ -238,10 +242,7 @@ class TincClientApiControllerTest {
         TincNodeMange peer = node(6L, 8L, "client_b", "secret", "office", "10.0.11.212");
         when(nodeService.selectByNodeNameExact("client_a")).thenReturn(Collections.singletonList(current));
         when(nodeService.selectTincNodeMangeList(any())).thenReturn(Arrays.asList(current, peer));
-        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
-                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
-        when(redisCache.expire(anyString(), eq(30L), eq(TimeUnit.MINUTES))).thenReturn(true);
-        when(nodeService.updateTincNodeMange(any())).thenReturn(1);
+        when(nodeService.updateClientStatus(anyLong(), any(), any())).thenReturn(1);
         Map<String, String> request = new HashMap<>();
         request.put("sid", "client_a");
         request.put("token", "token");
@@ -249,7 +250,7 @@ class TincClientApiControllerTest {
         JSONObject result = controller.keepAlive(request, response);
 
         assertEquals("success", result.getString("status"));
-        assertEquals(Collections.singletonList("10.0.11.212/32"),
+        assertEquals(Arrays.asList("10.0.11.1/32", "10.0.11.212/32"),
                 result.getJSONArray("allowed_routes").toJavaList(String.class));
     }
 
@@ -257,13 +258,10 @@ class TincClientApiControllerTest {
     void keepaliveDoesNotResurrectATokenRemovedDuringRenewal() {
         TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
         when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
-        when(redisCache.getCacheObject(startsWith("tinc:client:token:"))).thenReturn("5");
-        when(redisCache.getCacheObject(startsWith("tinc:client:revoked-token:")))
-                .thenReturn(null, "5");
-        when(redisCache.expire(startsWith("tinc:client:token:"), eq(30L), eq(TimeUnit.MINUTES)))
-                .thenReturn(false);
-        when(redisCache.expire(eq("tinc:client:node-tokens:5"), eq(30L), eq(TimeUnit.MINUTES)))
-                .thenReturn(false);
+        when(sessionStore.isRevoked("token")).thenReturn(false, true);
+        when(sessionStore.renew(5L, "token")).thenReturn(false);
+        when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network(8L, "new_network"));
+        when(nodeService.updateClientStatus(anyLong(), any(), any())).thenReturn(1);
         Map<String, String> request = new HashMap<>();
         request.put("sid", "new_client");
         request.put("token", "token");
@@ -272,13 +270,12 @@ class TincClientApiControllerTest {
 
         assertEquals("CLIENT_NODE_REVOKED", result.getString("code"));
         verify(response).setStatus(410);
-        verify(nodeService, never()).updateTincNodeMange(any());
-        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+        verify(sessionStore, never()).issue(anyLong());
     }
 
     @Test
     void revokedTokenCannotReportClientStatus() {
-        when(redisCache.getCacheObject(startsWith("tinc:client:revoked-token:"))).thenReturn("5");
+        when(sessionStore.isRevoked("revoked-token")).thenReturn(true);
         Map<String, String> request = new HashMap<>();
         request.put("sid", "new_client"); request.put("token", "revoked-token");
         request.put("type", "add"); request.put("result", "success");
@@ -291,15 +288,80 @@ class TincClientApiControllerTest {
     }
 
     @Test
+    void disabledNodeCannotLoginOrRenew() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        node.setStatus("禁用");
+        when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+
+        assertEquals("CLIENT_NODE_REVOKED",
+                controller.login(loginRequest("new_client", "secret"), response).getString("code"));
+        verify(sessionStore, never()).issue(anyLong());
+        Map<String, String> request = new HashMap<>();
+        request.put("sid", "new_client"); request.put("token", "token");
+        assertEquals("CLIENT_NODE_REVOKED", controller.keepAlive(request, response).getString("code"));
+        verify(sessionStore, never()).renew(anyLong(), anyString());
+    }
+
+    @Test
+    void lateStatusFallbackCannotTreatDisabledNodeAsSuccessful() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        node.setStatus("已配置");
+        node.setNodeStatus("禁用");
+        when(nodeService.selectTincNodeMangeById(5L)).thenReturn(node);
+        assertEquals(Boolean.FALSE, ReflectionTestUtils.invokeMethod(controller,
+                "isClientAlreadyConfigured", 5L));
+        TincNodeMange expected = new TincNodeMange();
+        expected.setNodeStatus("在线");
+        assertEquals(Boolean.FALSE, ReflectionTestUtils.invokeMethod(controller,
+                "isClientStatusPersisted", 5L, expected));
+    }
+
+    @Test
+    void expiredOrRedisUnavailableTokenCannotObtainRouteLease() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+        when(sessionStore.isValid(5L, "expired")).thenReturn(false);
+        Map<String, String> request = new HashMap<>();
+        request.put("sid", "new_client"); request.put("token", "expired");
+        assertEquals("CLIENT_TOKEN_INVALID", controller.keepAlive(request, response).getString("code"));
+        when(sessionStore.isValid(5L, "expired")).thenThrow(new IllegalStateException("offline"));
+        assertEquals("CLIENT_KEEPALIVE_FAILED", controller.keepAlive(request, response).getString("code"));
+        verify(sessionStore, never()).renew(anyLong(), anyString());
+    }
+
+    @Test
+    void keyUploadDoesNotResurrectPeerAfterConcurrentRevocation() {
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        TincNetworkMange network = network(8L, "new_network");
+        network.setServerId(3L);
+        MangeServer server = new MangeServer();
+        server.setId(3L); server.setServerIp("203.0.113.10");
+        String publicKey = RsaUtils.generateKeys().get("publicKey");
+        when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+        when(nodeService.selectTincNodeMangeById(5L)).thenReturn(node);
+        when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network);
+        when(serverService.selectMangeServerById(3L)).thenReturn(server);
+        when(runtimeRouter.readServerMaster(server, "new_network")).thenReturn(
+                "Address = 203.0.113.10\nPort = 600\nSubnet = 10.0.11.1/32\n\n" + publicKey);
+        when(sessionStore.isValid(5L, "token")).thenReturn(true, false);
+        JSONObject request = new JSONObject();
+        request.put("sid", "new_client"); request.put("token", "token");
+        request.put("action", "exchangeFile");
+        request.put("content", "Subnet = 10.0.11.211/32\n\n" + publicKey);
+
+        ResponseEntity<?> result = controller.uploadKey(MediaType.APPLICATION_JSON_VALUE, request.toJSONString());
+
+        assertEquals(410, result.getStatusCodeValue());
+        verify(runtimeRouter, never()).upsertPeer(any(), anyString(), any());
+    }
+
+    @Test
     void statusAndKeepaliveDoNotClaimSuccessWhenDatabaseStateIsMissing() {
         TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
         node.setStatus("配置成功");
         node.setNodeStatus("在线");
         when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
-        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
-                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
-        when(redisCache.expire(anyString(), eq(30L), eq(TimeUnit.MINUTES))).thenReturn(true);
-        when(nodeService.updateTincNodeMange(any())).thenReturn(0);
+        when(nodeService.updateClientStatus(anyLong(), any(), any())).thenReturn(0);
         when(nodeService.selectTincNodeMangeById(5L)).thenReturn(node, null, node, null);
         Map<String, String> request = new HashMap<>();
         request.put("sid", "new_client"); request.put("token", "token");
@@ -320,7 +382,7 @@ class TincClientApiControllerTest {
         ReflectionTestUtils.setField(realService, "tincNodeMangeMapper", mapper);
         ReflectionTestUtils.setField(realService, "tincNetworkMangeMapper", networks);
         ReflectionTestUtils.setField(realService, "mangeServerService", serverService);
-        ReflectionTestUtils.setField(realService, "redisCache", redisCache);
+        ReflectionTestUtils.setField(realService, "clientSessionStore", sessionStore);
         ReflectionTestUtils.setField(controller, "nodeMangeService", realService);
 
         String storedHash = TincNodePasswordCodec.encode("secret");
@@ -338,8 +400,6 @@ class TincClientApiControllerTest {
         when(networks.selectTincNetworkMangeById(8L)).thenReturn(network);
         when(networkService.selectTincNetworkMangeById(8L)).thenReturn(network);
         when(serverService.selectMangeServerById(3L)).thenReturn(server);
-        when(redisCache.getCacheObject(anyString())).thenAnswer(call ->
-                ((String) call.getArgument(0)).startsWith("tinc:client:token:") ? "5" : null);
         String publicKey = RsaUtils.generateKeys().get("publicKey");
         when(runtimeRouter.readServerMaster(server, "new_network")).thenReturn(
                 "Address = 203.0.113.10\nPort = 600\nSubnet = 10.0.11.1/32\n\n" + publicKey);
@@ -362,8 +422,7 @@ class TincClientApiControllerTest {
                 .getStatusCodeValue());
         verify(mapper, times(2)).markClientConfigured(5L);
         verify(mapper, never()).updateTincNodeMange(any());
-        verify(redisCache, never()).deleteObject(anyString());
-        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:revoked-token:"), any(), anyInt(), any());
+        verify(sessionStore, never()).revokeNode(anyLong(), anyBoolean());
         assertEquals(1, controller.login(loginRequest("new_client", "secret"), response).getIntValue("status"));
     }
 
@@ -386,7 +445,7 @@ class TincClientApiControllerTest {
         assertEquals(8L, result.getLongValue("network_id"));
         verify(nodeService).selectByAccessCode("TL-7K9M-2Q4F");
         verify(nodeService, never()).selectByNodeNameExact(anyString());
-        verify(redisCache).setCacheObject(startsWith("tinc:client:token:"), eq("5"), eq(30), any());
+        verify(sessionStore).issue(5L);
     }
 
     @Test
@@ -400,7 +459,7 @@ class TincClientApiControllerTest {
         assertEquals(0, result.getIntValue("status"));
         assertEquals("CLIENT_CREDENTIAL_INVALID", result.getString("code"));
         assertEquals("接入码或密码无效", result.getString("msg"));
-        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+        verify(sessionStore, never()).issue(anyLong());
         verify(loginLimiter, never()).clearCredential(anyString());
     }
 
@@ -420,7 +479,7 @@ class TincClientApiControllerTest {
         verify(response, times(2)).setStatus(429);
         verify(response, times(2)).setHeader("Retry-After", "47");
         verify(nodeService, never()).selectByAccessCode(anyString());
-        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+        verify(sessionStore, never()).issue(anyLong());
     }
 
     @Test
@@ -433,7 +492,7 @@ class TincClientApiControllerTest {
         assertEquals("CLIENT_LOGIN_LIMITER_UNAVAILABLE", result.getString("code"));
         verify(response).setStatus(503);
         verify(nodeService, never()).selectByAccessCode(anyString());
-        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+        verify(sessionStore, never()).issue(anyLong());
     }
 
     @Test
@@ -490,7 +549,7 @@ class TincClientApiControllerTest {
         assertEquals(0, result.getIntValue("status"));
         assertEquals("CLIENT_LEGACY_LOGIN_AMBIGUOUS", result.getString("code"));
         assertTrue(result.getString("msg").contains("接入码"));
-        verify(redisCache, never()).setCacheObject(startsWith("tinc:client:token:"), any(), anyInt(), any());
+        verify(sessionStore, never()).issue(anyLong());
     }
 
     private static Map<String, String> loginRequest(String sid, String password) {
@@ -524,6 +583,8 @@ class TincClientApiControllerTest {
         result.setId(id);
         result.setNetworkName(name);
         result.setPort("600");
+        result.setSegment("network_a".equals(name) ? "10.0.10" :
+                "network_b".equals(name) ? "10.0.20" : "10.0.11");
         return result;
     }
 }

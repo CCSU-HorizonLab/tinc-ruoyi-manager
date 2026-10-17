@@ -83,6 +83,10 @@ public interface TincNodeMangeMapper
 
     public int markClientConfigured(@Param("id") Long id);
 
+    public int updateClientStatus(@Param("id") Long id,
+                                  @Param("configStatus") String configStatus,
+                                  @Param("onlineStatus") String onlineStatus);
+
     /**
      * 删除Tinc节点集群管理
      * 

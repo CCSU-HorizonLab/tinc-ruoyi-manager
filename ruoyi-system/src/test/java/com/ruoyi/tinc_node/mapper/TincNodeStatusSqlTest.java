@@ -21,8 +21,9 @@ class TincNodeStatusSqlTest {
         }
         BoundSql sql = configuration.getMappedStatement(TincNodeMangeMapper.class.getName()
                 + ".markClientConfigured").getBoundSql(Collections.singletonMap("id", 5L));
-        assertEquals("update tinc_node set status = '已配置' where id = ?",
-                sql.getSql().trim().replaceAll("\\s+", " "));
+        assertTrue(sql.getSql().trim().replaceAll("\\s+", " ")
+                .startsWith("update tinc_node set status = '已配置' where id = ?"));
+        assertTrue(sql.getSql().contains("status not in"));
         assertEquals(1, sql.getParameterMappings().size());
         assertEquals("id", sql.getParameterMappings().get(0).getProperty());
     }

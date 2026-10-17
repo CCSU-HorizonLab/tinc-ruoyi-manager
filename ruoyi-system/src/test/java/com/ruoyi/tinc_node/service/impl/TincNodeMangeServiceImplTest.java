@@ -8,10 +8,8 @@ import com.ruoyi.tinc_server.domain.MangeServer;
 import com.ruoyi.tinc_server.service.IMangeServerService;
 import com.ruoyi.tinc.runtime.TincRuntimeRouter;
 import com.ruoyi.common.tinc.access.AccessOperationResult;
-import com.ruoyi.common.core.redis.RedisCache;
+import com.ruoyi.tinc.session.TincClientSessionStore;
 import com.ruoyi.common.security.TincNodePasswordCodec;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -31,7 +29,7 @@ class TincNodeMangeServiceImplTest {
     @Mock private TincNetworkMangeMapper networkMapper;
     @Mock private IMangeServerService serverService;
     @Mock private TincRuntimeRouter runtimeRouter;
-    @Mock private RedisCache redisCache;
+    @Mock private TincClientSessionStore clientSessionStore;
     private TincNodeMangeServiceImpl service;
 
     @BeforeEach
@@ -42,7 +40,7 @@ class TincNodeMangeServiceImplTest {
         ReflectionTestUtils.setField(service, "tincNetworkMangeMapper", networkMapper);
         ReflectionTestUtils.setField(service, "mangeServerService", serverService);
         ReflectionTestUtils.setField(service, "tincRuntimeRouter", runtimeRouter);
-        ReflectionTestUtils.setField(service, "redisCache", redisCache);
+        ReflectionTestUtils.setField(service, "clientSessionStore", clientSessionStore);
         when(serverService.selectMangeServerById(1L)).thenReturn(server());
         when(nodeMapper.insertTincNodeMange(any())).thenReturn(1);
     }
@@ -188,7 +186,7 @@ class TincNodeMangeServiceImplTest {
         assertEquals(1, service.markClientConfigured(88L));
         verify(nodeMapper).markClientConfigured(88L);
         verifyNoMoreInteractions(nodeMapper);
-        verifyNoInteractions(redisCache, runtimeRouter, networkMapper);
+        verifyNoInteractions(clientSessionStore, runtimeRouter, networkMapper);
         assertThrows(IllegalArgumentException.class, () -> service.markClientConfigured(null));
         assertThrows(IllegalArgumentException.class, () -> service.markClientConfigured(0L));
     }
@@ -200,7 +198,6 @@ class TincNodeMangeServiceImplTest {
         when(nodeMapper.selectTincNodeMangeById(88L)).thenReturn(existing);
         when(networkMapper.selectTincNetworkMangeById(10L)).thenReturn(network(10L, "network_a", "10.0.10"));
         when(nodeMapper.updateTincNodeMange(any())).thenReturn(1);
-        when(redisCache.getCacheSet("tinc:client:node-tokens:88")).thenReturn(Set.of("old-token-hash"));
         TincNodeMange update = new TincNodeMange();
         update.setId(88L);
         update.setPassword("new-password");
@@ -208,7 +205,7 @@ class TincNodeMangeServiceImplTest {
         assertEquals(1, service.updateTincNodeMange(update));
         verify(nodeMapper).updateTincNodeMange(argThat(value ->
                 TincNodePasswordCodec.matches("new-password", value.getPassword())));
-        verify(redisCache).deleteObject("tinc:client:token:old-token-hash");
+        verify(clientSessionStore).revokeNode(88L, false);
         verifyNoInteractions(runtimeRouter);
     }
 
@@ -226,7 +223,7 @@ class TincNodeMangeServiceImplTest {
                 () -> service.updateTincNodeMange(update));
         assertTrue(error.getMessage().startsWith("TINC_NODE_IP_CHANGE_FORBIDDEN:"));
         verify(nodeMapper, never()).updateTincNodeMange(any());
-        verifyNoInteractions(runtimeRouter, redisCache);
+        verifyNoInteractions(runtimeRouter, clientSessionStore);
     }
 
     @Test
@@ -242,7 +239,7 @@ class TincNodeMangeServiceImplTest {
         assertEquals(1, service.updateTincNodeMange(update));
         verify(nodeMapper).updateTincNodeMange(argThat(n -> "10.0.10.20".equals(n.getNetworkIp())
                 && n.getPassword() == null && "new remark".equals(n.getExplanation())));
-        verifyNoInteractions(runtimeRouter, redisCache);
+        verifyNoInteractions(runtimeRouter, clientSessionStore);
     }
 
     @Test
@@ -252,16 +249,64 @@ class TincNodeMangeServiceImplTest {
         when(nodeMapper.selectTincNodeMangeById(50L)).thenReturn(node);
         when(networkMapper.selectTincNetworkMangeById(10L)).thenReturn(network(10L, "network_a", "10.0.10"));
         when(nodeMapper.deleteTincNodeMangeById(50L)).thenReturn(1);
+        com.ruoyi.common.tinc.runtime.TincNetworkStatus ready = new com.ruoyi.common.tinc.runtime.TincNetworkStatus();
+        ready.setReadiness("READY");
         when(runtimeRouter.deletePeer(any(), eq("network_a"), eq("alice")))
-                .thenReturn(AccessOperationResult.of(true, null));
-        when(redisCache.getCacheSet("tinc:client:node-tokens:50")).thenReturn(Set.of("token-hash"));
+                .thenReturn(AccessOperationResult.of(true, ready));
 
         assertEquals(1, service.deleteTincNodeMangeById(50L));
 
         verify(runtimeRouter).deletePeer(argThat(s -> s.getId().equals(1L)), eq("network_a"), eq("alice"));
-        verify(redisCache).setCacheObject("tinc:client:revoked-token:token-hash", "50", 24, TimeUnit.HOURS);
-        verify(redisCache).deleteObject("tinc:client:token:token-hash");
+        verify(clientSessionStore).revokeNode(50L, true);
         verify(nodeMapper).deleteTincNodeMangeById(50L);
+    }
+
+    @Test
+    void failedRuntimeRevocationKeepsDatabaseNodeButSessionsStayDenied() {
+        TincNodeMange node = node(10L, "alice", "10.0.10.20");
+        node.setId(50L);
+        when(nodeMapper.selectTincNodeMangeById(50L)).thenReturn(node);
+        when(networkMapper.selectTincNetworkMangeById(10L)).thenReturn(network(10L, "network_a", "10.0.10"));
+        when(runtimeRouter.deletePeer(any(), eq("network_a"), eq("alice")))
+                .thenReturn(AccessOperationResult.of(true, null));
+
+        assertThrows(IllegalStateException.class, () -> service.deleteTincNodeMangeById(50L));
+        verify(clientSessionStore).revokeNode(50L, true);
+        verify(nodeMapper, never()).deleteTincNodeMangeById(50L);
+    }
+
+    @Test
+    void runtimeReloadFailureCannotReportSuccessfulNodeDeletion() {
+        TincNodeMange node = node(10L, "alice", "10.0.10.20");
+        node.setId(51L);
+        when(nodeMapper.selectTincNodeMangeById(51L)).thenReturn(node);
+        when(networkMapper.selectTincNetworkMangeById(10L)).thenReturn(network(10L, "network_a", "10.0.10"));
+        when(runtimeRouter.deletePeer(any(), eq("network_a"), eq("alice")))
+                .thenThrow(new IllegalStateException("TINC_RELOAD_FAILED"));
+
+        assertThrows(IllegalStateException.class, () -> service.deleteTincNodeMangeById(51L));
+        verify(clientSessionStore).revokeNode(51L, true);
+        verify(nodeMapper, never()).deleteTincNodeMangeById(51L);
+    }
+
+    @Test
+    void disablingNodeRevokesHostAndTokensBeforeReturn() {
+        TincNodeMange node = node(10L, "alice", "10.0.10.20");
+        node.setId(50L);
+        when(nodeMapper.selectTincNodeMangeById(50L)).thenReturn(node);
+        when(networkMapper.selectTincNetworkMangeById(10L)).thenReturn(network(10L, "network_a", "10.0.10"));
+        when(nodeMapper.updateTincNodeMange(any())).thenReturn(1);
+        com.ruoyi.common.tinc.runtime.TincNetworkStatus ready = new com.ruoyi.common.tinc.runtime.TincNetworkStatus();
+        ready.setReadiness("READY");
+        when(runtimeRouter.deletePeer(any(), eq("network_a"), eq("alice")))
+                .thenReturn(AccessOperationResult.of(true, ready));
+        TincNodeMange update = new TincNodeMange();
+        update.setId(50L);
+        update.setStatus("禁用");
+
+        assertEquals(1, service.updateTincNodeMange(update));
+        verify(clientSessionStore).revokeNode(50L, false);
+        verify(runtimeRouter).deletePeer(any(), eq("network_a"), eq("alice"));
     }
 
     private static TincNodeMange node(Long networkId, String name, String ip) {

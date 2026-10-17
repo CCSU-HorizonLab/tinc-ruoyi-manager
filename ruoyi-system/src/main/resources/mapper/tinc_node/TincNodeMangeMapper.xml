@@ -153,6 +153,19 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <update id="markClientConfigured">
         update tinc_node set status = '已配置' where id = #{id}
+        and (status is null or status not in ('禁用', '已撤销', 'disabled', 'revoked'))
+        and (node_status is null or node_status not in ('禁用', '已撤销', 'disabled', 'revoked'))
+    </update>
+
+    <update id="updateClientStatus">
+        update tinc_node
+        <set>
+            <if test="configStatus != null">status = #{configStatus},</if>
+            <if test="onlineStatus != null">node_status = #{onlineStatus},</if>
+        </set>
+        where id = #{id}
+        and (status is null or status not in ('禁用', '已撤销', 'disabled', 'revoked'))
+        and (node_status is null or node_status not in ('禁用', '已撤销', 'disabled', 'revoked'))
     </update>
 
     <update id="upgradeLegacyPassword">

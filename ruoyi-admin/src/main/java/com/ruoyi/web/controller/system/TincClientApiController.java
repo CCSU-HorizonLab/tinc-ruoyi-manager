@@ -4,7 +4,6 @@ import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.tinc_network.domain.TincNetworkMange;
 import com.ruoyi.tinc_network.service.ITincNetworkMangeService;
 import com.ruoyi.common.annotation.Anonymous;
-import com.ruoyi.common.core.redis.RedisCache;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.tinc.access.AccessPeerSpec;
 import com.ruoyi.common.tinc.runtime.TincRuntimeException;
@@ -14,6 +13,8 @@ import com.ruoyi.tinc_server.domain.MangeServer;
 import com.ruoyi.tinc_server.service.IMangeServerService;
 import com.ruoyi.tinc_node.domain.TincNodeMange;
 import com.ruoyi.tinc_node.service.ITincNodeMangeService;
+import com.ruoyi.tinc.session.TincClientSessionStore;
+import com.ruoyi.tinc.session.TincClientLifecycleLocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,17 +25,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.SecureRandom;
-import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.TreeSet;
-import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import java.util.regex.Pattern;
@@ -61,13 +56,7 @@ public class TincClientApiController {
     private static final Pattern TINC_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]{1,64}");
     private static final Pattern WINDOWS_RESERVED_NAME = Pattern.compile(
             "(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])");
-    private static final String CLIENT_TOKEN_PREFIX = "tinc:client:token:";
-    private static final String CLIENT_NODE_TOKEN_PREFIX = "tinc:client:node-tokens:";
-    private static final String CLIENT_REVOKED_TOKEN_PREFIX = "tinc:client:revoked-token:";
-    private static final int CLIENT_TOKEN_EXPIRATION_MINUTES = 30;
-    private static final int MAX_CLIENT_ALLOWED_ROUTES = 1024;
     private static final int MAX_KEY_UPLOAD_BODY_BYTES = 64 * 1024;
-    private static final SecureRandom CLIENT_TOKEN_RANDOM = new SecureRandom();
 
     @Autowired
     private IMangeServerService mangeServerService;
@@ -79,7 +68,10 @@ public class TincClientApiController {
     private ITincNodeMangeService nodeMangeService;
 
     @Autowired
-    private RedisCache redisCache;
+    private TincClientSessionStore sessionStore;
+
+    @Autowired
+    private TincClientRouteSnapshot routeSnapshot;
 
     @Autowired
     private TincClientLoginLimiter loginLimiter;
@@ -206,6 +198,13 @@ public class TincClientApiController {
             }
 
             // 验证节点网络配置
+            if (!TincClientRouteSnapshot.eligible(node)) {
+                response.setStatus(HttpStatus.GONE.value());
+                result.put("status", 0);
+                result.put("code", "CLIENT_NODE_REVOKED");
+                result.put("msg", "节点已被撤销或禁用");
+                return result;
+            }
             if (!isValidIpv4(node.getNetworkIp())) {
                 log.warn("节点未配置有效的 IPv4 地址: nodeId={}, nodeName={}", node.getId(), node.getNodeName());
                 result.put("status", 0);
@@ -223,9 +222,19 @@ public class TincClientApiController {
                 return result;
             }
 
-            List<String> allowedRoutes = buildAllowedRoutes(node, network.getId());
+            TincClientRouteSnapshot.Snapshot snapshot;
+            try {
+                snapshot = routeSnapshot.build(node, network);
+            } catch (RuntimeException e) {
+                log.warn("客户端登录路由快照不可用: nodeId={}, errorType={}", node.getId(), e.getClass().getSimpleName());
+                response.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
+                result.put("status", 0);
+                result.put("code", "CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE");
+                result.put("msg", "授权路由暂时不可用");
+                return result;
+            }
             loginLimiter.clearCredential(loginTarget);
-            String clientToken = createClientToken(node);
+            String clientToken = sessionStore.issue(node.getId());
             result.put("status", 1);
             result.put("sid", node.getNodeName());
             result.put("access_code", node.getAccessCode());
@@ -235,7 +244,7 @@ public class TincClientApiController {
             result.put("node_id", node.getId());
             result.put("msg", "登录成功");
             result.put("node_ip", node.getNetworkIp());
-            result.put("allowed_routes", allowedRoutes);
+            putRouteSnapshot(result, snapshot);
 
             log.info("客户端登录成功: nodeId={}, networkId={}", node.getId(), network.getId());
         } catch (TincClientLoginLimiter.LimiterUnavailableException e) {
@@ -244,11 +253,18 @@ public class TincClientApiController {
             result.put("status", 0);
             result.put("code", "CLIENT_LOGIN_LIMITER_UNAVAILABLE");
             result.put("msg", "登录服务暂时不可用，请稍后重试");
+        } catch (IllegalStateException e) {
+            log.warn("客户端登录未取得有效授权或会话: errorType={}", e.getClass().getSimpleName());
+            response.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
+            result.put("status", 0);
+            result.put("code", "CLIENT_SESSION_UNAVAILABLE");
+            result.put("msg", "客户端授权或会话服务暂时不可用");
         } catch (Exception e) {
             log.error("登录接口异常，错误类型={}", e.getClass().getSimpleName());
+            response.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
             result.put("status", 0);
-            result.put("code", "SYSTEM_ERROR");
-            result.put("msg", "系统暂时不可用");
+            result.put("code", "CLIENT_SESSION_UNAVAILABLE");
+            result.put("msg", "客户端会话服务暂时不可用");
         }
 
         return result;
@@ -295,6 +311,10 @@ public class TincClientApiController {
                 writeClientApiError(response, HttpStatus.SERVICE_UNAVAILABLE, "CLIENT_SESSION_UNAVAILABLE", "客户端会话服务不可用");
                 return;
             }
+            if (!TincClientRouteSnapshot.eligible(node)) {
+                writeClientApiError(response, HttpStatus.GONE, "CLIENT_NODE_REVOKED", "节点已被撤销或禁用");
+                return;
+            }
 
             TincNetworkMange network = resolveNetworkForNode(node);
             if (network == null || !isValidTincIdentifier(network.getNetworkName())) {
@@ -330,7 +350,6 @@ public class TincClientApiController {
                         "网关主机配置不可用");
                 return;
             }
-
             byte[] zipBody;
             try (ByteArrayOutputStream output = new ByteArrayOutputStream();
                  ZipOutputStream zos = new ZipOutputStream(output)) {
@@ -450,6 +469,10 @@ public class TincClientApiController {
                 return clientApiError(HttpStatus.SERVICE_UNAVAILABLE, "CLIENT_SESSION_UNAVAILABLE", "客户端会话服务不可用");
             }
 
+            if (!TincClientRouteSnapshot.eligible(node)) {
+                return clientApiError(HttpStatus.GONE, "CLIENT_NODE_REVOKED", "节点已被撤销或禁用");
+            }
+
             if (!isValidIpv4(node.getNetworkIp())) {
                 return clientApiError(HttpStatus.BAD_REQUEST, "CLIENT_PUBLIC_KEY_INVALID", "节点 IPv4 配置无效");
             }
@@ -489,36 +512,54 @@ public class TincClientApiController {
             peer.setNodeName(nodeName);
             peer.setSubnet(node.getNetworkIp() + "/32");
             peer.setPublicKey(cleanPubKey);
-            boolean changed = tincRuntimeRouter.upsertPeer(server, network.getNetworkName(), peer).isChanged();
-
-            // 只写配置状态，绝不把携带密码哈希的查询实体传回管理员编辑入口。
-            // 相同公钥重试也补写状态，以修复上次 Runtime 成功但数据库写入失败的情况。
+            java.util.concurrent.locks.ReentrantLock nodeLock = TincClientLifecycleLocks.forNode(node.getId());
+            nodeLock.lock();
             try {
-                int updated = nodeMangeService.markClientConfigured(node.getId());
-                if (updated != 1 && (updated != 0
-                        || !isClientAlreadyConfigured(node.getId()))) {
-                    log.warn("节点配置状态未确认: nodeId={}, updatedRows={}", node.getId(), updated);
+                TincNodeMange current = nodeMangeService.selectTincNodeMangeById(node.getId());
+                TincNetworkMange currentNetwork = current == null ? null : resolveNetworkForNode(current);
+                if (current == null || !TincClientRouteSnapshot.eligible(current)
+                        || currentNetwork == null || !Objects.equals(currentNetwork.getId(), network.getId())
+                        || !Objects.equals(current.getNetworkIp(), node.getNetworkIp())) {
+                    return clientApiError(HttpStatus.GONE, "CLIENT_NODE_REVOKED", "节点授权已变化，请重新登录");
+                }
+                try {
+                    if (!sessionStore.isValid(node.getId(), token)) {
+                        return clientApiError(HttpStatus.GONE, "CLIENT_NODE_REVOKED", "节点授权已变化，请重新登录");
+                    }
+                } catch (Exception e) {
+                    return clientApiError(HttpStatus.SERVICE_UNAVAILABLE,
+                            "CLIENT_SESSION_UNAVAILABLE", "客户端会话服务不可用");
+                }
+                boolean changed = tincRuntimeRouter.upsertPeer(server, network.getNetworkName(), peer).isChanged();
+
+                // 只写配置状态；同公钥重试也补写上次 Runtime 成功后的数据库状态。
+                try {
+                    int updated = nodeMangeService.markClientConfigured(node.getId());
+                    if (updated != 1 && (updated != 0 || !isClientAlreadyConfigured(node.getId()))) {
+                        log.warn("节点配置状态未确认: nodeId={}, updatedRows={}", node.getId(), updated);
+                        return clientApiError(HttpStatus.SERVICE_UNAVAILABLE,
+                                "CLIENT_CONFIG_STATE_PERSIST_FAILED", "公钥已应用，但节点配置状态保存失败，请稍后重试公钥上传");
+                    }
+                } catch (Exception e) {
+                    log.error("节点配置状态保存失败: nodeId={}, errorType={}",
+                            node.getId(), e.getClass().getSimpleName());
                     return clientApiError(HttpStatus.SERVICE_UNAVAILABLE,
                             "CLIENT_CONFIG_STATE_PERSIST_FAILED", "公钥已应用，但节点配置状态保存失败，请稍后重试公钥上传");
                 }
-            } catch (Exception e) {
-                // Runtime 已提交；保留已应用的公钥，客户端可安全重试以修复数据库状态。
-                log.error("节点配置状态保存失败: nodeId={}, errorType={}",
-                        node.getId(), e.getClass().getSimpleName());
-                return clientApiError(HttpStatus.SERVICE_UNAVAILABLE,
-                        "CLIENT_CONFIG_STATE_PERSIST_FAILED", "公钥已应用，但节点配置状态保存失败，请稍后重试公钥上传");
-            }
-            if (changed) {
-                log.info("节点 [{}] 公钥已推送至对应网关的 hosts 目录", nodeName);
-            } else {
-                log.info("节点 [{}] 上传的公钥未变化，不重复推送或重载网关", nodeName);
-            }
+                if (changed) {
+                    log.info("节点 [{}] 公钥已推送至对应网关的 hosts 目录", nodeName);
+                } else {
+                    log.info("节点 [{}] 上传的公钥未变化，不重复推送或重载网关", nodeName);
+                }
 
-            log.info("服务器主机配置已返回，公钥变更={}", changed);
-            return ResponseEntity.ok()
-                    .contentType(MediaType.TEXT_PLAIN)
-                    .header(HttpHeaders.CACHE_CONTROL, "no-store")
-                    .body(validatedMainHost);
+                log.info("服务器主机配置已返回，公钥变更={}", changed);
+                return ResponseEntity.ok()
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                        .body(validatedMainHost);
+            } finally {
+                nodeLock.unlock();
+            }
         } catch (TincRuntimeException e) {
             log.warn("公钥上传后网络未就绪: netCode={}", e.getCode());
             return clientApiError(HttpStatus.SERVICE_UNAVAILABLE, e.getCode().name(), e.getMessage());
@@ -566,6 +607,10 @@ public class TincClientApiController {
                 return clientStateError(response, HttpStatus.UNAUTHORIZED,
                         "CLIENT_TOKEN_INVALID", "客户端会话无效或已过期");
             }
+            if (!TincClientRouteSnapshot.eligible(node)) {
+                return clientStateError(response, HttpStatus.GONE,
+                        "CLIENT_NODE_REVOKED", "节点已被撤销或禁用");
+            }
 
             // 只更新状态列，禁止把查询得到的 password 等敏感字段重新提交给 Mapper。
             TincNodeMange statusUpdate = new TincNodeMange();
@@ -578,7 +623,8 @@ public class TincClientApiController {
                 statusUpdate.setNodeStatus("离线");
             }
 
-            int updated = nodeMangeService.updateTincNodeMange(statusUpdate);
+            int updated = nodeMangeService.updateClientStatus(node.getId(),
+                    statusUpdate.getStatus(), statusUpdate.getNodeStatus());
             if (updated != 1 && (updated != 0 || !isClientStatusPersisted(node.getId(), statusUpdate))) {
                 log.warn("节点状态上报未持久化: nodeId={}, updatedRows={}", node.getId(), updated);
                 return clientStateError(response, HttpStatus.SERVICE_UNAVAILABLE,
@@ -623,7 +669,36 @@ public class TincClientApiController {
                 return clientStateError(response, HttpStatus.UNAUTHORIZED,
                         "CLIENT_TOKEN_INVALID", "客户端会话无效或已过期");
             }
-            if (!renewClientTokenLease(node, token)) {
+            if (!TincClientRouteSnapshot.eligible(node)) {
+                return clientStateError(response, HttpStatus.GONE,
+                        "CLIENT_NODE_REVOKED", "节点已被撤销或禁用");
+            }
+            TincNetworkMange network = resolveNetworkForNode(node);
+            if (network == null) {
+                return clientStateError(response, HttpStatus.SERVICE_UNAVAILABLE,
+                        "CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE", "授权路由暂时不可用");
+            }
+            TincClientRouteSnapshot.Snapshot snapshot;
+            try {
+                snapshot = routeSnapshot.build(node, network);
+            } catch (RuntimeException e) {
+                log.warn("心跳路由快照不可用: nodeId={}, errorType={}", node.getId(), e.getClass().getSimpleName());
+                return clientStateError(response, HttpStatus.SERVICE_UNAVAILABLE,
+                        "CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE", "授权路由暂时不可用");
+            }
+
+            TincNodeMange heartbeatUpdate = new TincNodeMange();
+            heartbeatUpdate.setId(node.getId());
+            heartbeatUpdate.setNodeStatus("在线");
+            int updated = nodeMangeService.updateClientStatus(node.getId(), null, "在线");
+            if (updated != 1 && (updated != 0 || !isClientStatusPersisted(node.getId(), heartbeatUpdate))) {
+                log.warn("客户端心跳未持久化: nodeId={}, updatedRows={}", node.getId(), updated);
+                return clientStateError(response, HttpStatus.SERVICE_UNAVAILABLE,
+                        "CLIENT_KEEPALIVE_FAILED", "心跳服务暂时不可用");
+            }
+
+            // Renew last: a revoked/expired token cannot be restored by a racing heartbeat.
+            if (!sessionStore.renew(node.getId(), token)) {
                 if (isRevokedClientToken(token)) {
                     return clientStateError(response, HttpStatus.GONE,
                             "CLIENT_NODE_REVOKED", "节点已被撤销");
@@ -631,26 +706,9 @@ public class TincClientApiController {
                 return clientStateError(response, HttpStatus.UNAUTHORIZED,
                         "CLIENT_TOKEN_INVALID", "客户端会话无效或已过期");
             }
-
-            TincNodeMange heartbeatUpdate = new TincNodeMange();
-            heartbeatUpdate.setId(node.getId());
-            heartbeatUpdate.setNodeStatus("在线");
-            int updated = nodeMangeService.updateTincNodeMange(heartbeatUpdate);
-            if (updated != 1 && (updated != 0 || !isClientStatusPersisted(node.getId(), heartbeatUpdate))) {
-                log.warn("客户端心跳未持久化: nodeId={}, updatedRows={}", node.getId(), updated);
-                return clientStateError(response, HttpStatus.SERVICE_UNAVAILABLE,
-                        "CLIENT_KEEPALIVE_FAILED", "心跳服务暂时不可用");
-            }
-
-            Long networkId = node.getNetworkId();
-            if (networkId == null) {
-                TincNetworkMange network = resolveNetworkForNode(node);
-                networkId = network == null ? null : network.getId();
-            }
-            List<String> allowedRoutes = buildAllowedRoutes(node, networkId);
             result.put("status", "success");
             result.put("msg", "心跳成功");
-            result.put("allowed_routes", allowedRoutes);
+            putRouteSnapshot(result, snapshot);
             log.info("节点 [{}] 在线状态已刷新", nodeName);
         } catch (Exception e) {
             log.error("心跳接口异常，错误类型={}", e.getClass().getSimpleName());
@@ -806,12 +864,12 @@ public class TincClientApiController {
 
     private boolean isClientAlreadyConfigured(Long nodeId) {
         TincNodeMange current = nodeMangeService.selectTincNodeMangeById(nodeId);
-        return current != null && "已配置".equals(current.getStatus());
+        return TincClientRouteSnapshot.eligible(current) && "已配置".equals(current.getStatus());
     }
 
     private boolean isClientStatusPersisted(Long nodeId, TincNodeMange expected) {
         TincNodeMange current = nodeMangeService.selectTincNodeMangeById(nodeId);
-        return current != null
+        return TincClientRouteSnapshot.eligible(current)
                 && (expected.getStatus() == null || Objects.equals(expected.getStatus(), current.getStatus()))
                 && (expected.getNodeStatus() == null
                         || Objects.equals(expected.getNodeStatus(), current.getNodeStatus()));
@@ -821,13 +879,8 @@ public class TincClientApiController {
         if (StringUtils.isEmpty(token)) {
             return null;
         }
-        Object authenticatedNodeId = redisCache.getCacheObject(CLIENT_TOKEN_PREFIX + sha256Hex(token));
-        if (authenticatedNodeId == null) {
-            return null;
-        }
-        String expectedId = String.valueOf(authenticatedNodeId);
         for (TincNodeMange candidate : candidates) {
-            if (candidate.getId() != null && expectedId.equals(String.valueOf(candidate.getId()))) {
+            if (candidate.getId() != null && sessionStore.isValid(candidate.getId(), token)) {
                 return candidate;
             }
         }
@@ -835,49 +888,13 @@ public class TincClientApiController {
     }
 
     private boolean isRevokedClientToken(String token) throws Exception {
-        return StringUtils.isNotEmpty(token)
-                && redisCache.getCacheObject(CLIENT_REVOKED_TOKEN_PREFIX + sha256Hex(token)) != null;
+        return sessionStore.isRevoked(token);
     }
 
-    private boolean renewClientTokenLease(TincNodeMange node, String token) throws Exception {
-        if (node == null || node.getId() == null || StringUtils.isEmpty(token)) {
-            return false;
-        }
-        String tokenHash = sha256Hex(token);
-        boolean tokenRenewed = redisCache.expire(CLIENT_TOKEN_PREFIX + tokenHash,
-                CLIENT_TOKEN_EXPIRATION_MINUTES, TimeUnit.MINUTES);
-        boolean indexRenewed = redisCache.expire(CLIENT_NODE_TOKEN_PREFIX + node.getId(),
-                CLIENT_TOKEN_EXPIRATION_MINUTES, TimeUnit.MINUTES);
-        return tokenRenewed && indexRenewed;
-    }
-
-    private List<String> buildAllowedRoutes(TincNodeMange currentNode, Long networkId) {
-        if (currentNode == null || currentNode.getId() == null || networkId == null) {
-            throw new IllegalStateException("客户端节点缺少稳定网络身份");
-        }
-        TincNodeMange query = new TincNodeMange();
-        query.setNetworkId(networkId);
-        List<TincNodeMange> members = nodeMangeService.selectTincNodeMangeList(query);
-        if (members == null || members.isEmpty()) {
-            return Collections.emptyList();
-        }
-        TreeSet<String> routes = new TreeSet<>();
-        for (TincNodeMange member : members) {
-            if (member == null || Objects.equals(currentNode.getId(), member.getId())) {
-                continue;
-            }
-            String peerIp = member.getNetworkIp();
-            if (!isValidIpv4(peerIp) || Objects.equals(currentNode.getNetworkIp(), peerIp)) {
-                log.warn("跳过无效的客户端对端路由: networkId={}, nodeId={}", networkId,
-                        member.getId());
-                continue;
-            }
-            routes.add(peerIp + "/32");
-            if (routes.size() > MAX_CLIENT_ALLOWED_ROUTES) {
-                throw new IllegalStateException("客户端对端路由数量超过安全上限");
-            }
-        }
-        return new ArrayList<>(routes);
+    private void putRouteSnapshot(JSONObject response, TincClientRouteSnapshot.Snapshot snapshot) {
+        response.put("allowed_routes", snapshot.getRoutes());
+        response.put("route_revision", snapshot.getRevision());
+        response.put("route_lease_seconds", TincClientSessionStore.ROUTE_LEASE_SECONDS);
     }
 
     private TincNetworkMange findExactNetwork(String networkName) {
@@ -916,29 +933,6 @@ public class TincClientApiController {
         }
         log.warn("客户端网络缺少 server_id，使用已弃用的精确名称回退: networkId={}", network.getId());
         return findExactServer(network.getServerName());
-    }
-
-    private String createClientToken(TincNodeMange node) throws Exception {
-        byte[] random = new byte[32];
-        CLIENT_TOKEN_RANDOM.nextBytes(random);
-        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(random);
-        String tokenHash = sha256Hex(token);
-        redisCache.setCacheObject(CLIENT_TOKEN_PREFIX + tokenHash, String.valueOf(node.getId()),
-                CLIENT_TOKEN_EXPIRATION_MINUTES, TimeUnit.MINUTES);
-        redisCache.setCacheSet(CLIENT_NODE_TOKEN_PREFIX + node.getId(),
-                java.util.Collections.singleton(tokenHash));
-        redisCache.expire(CLIENT_NODE_TOKEN_PREFIX + node.getId(),
-                CLIENT_TOKEN_EXPIRATION_MINUTES, TimeUnit.MINUTES);
-        return token;
-    }
-
-    private String sha256Hex(String value) throws Exception {
-        byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-        StringBuilder result = new StringBuilder(digest.length * 2);
-        for (byte b : digest) {
-            result.append(String.format("%02x", b));
-        }
-        return result.toString();
     }
 
     private String validateClientPublicKey(String content, String networkIp) throws Exception {
