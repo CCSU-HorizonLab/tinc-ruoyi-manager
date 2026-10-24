@@ -120,14 +120,25 @@
         <el-table-column prop="networkId" label="网络 ID" width="100" />
         <el-table-column prop="networkName" label="网络名称" />
         <el-table-column prop="readiness" label="运行时状态" />
+        <el-table-column prop="statusProbeMs" label="状态查询耗时" width="130">
+          <template slot-scope="scope">{{ scope.row.statusProbeMs == null ? '—' : scope.row.statusProbeMs + ' ms' }}</template>
+        </el-table-column>
+        <el-table-column prop="interfaceName" label="虚拟网卡" width="110">
+          <template slot-scope="scope">{{ display(scope.row.interfaceName) }}</template>
+        </el-table-column>
+        <el-table-column label="网卡累计接收 / 发送" min-width="190">
+          <template slot-scope="scope">
+            {{ formatBytes(scope.row.interfaceRxBytes) }} / {{ formatBytes(scope.row.interfaceTxBytes) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="failureCode" label="诊断代码" />
         <el-table-column prop="failureMessage" label="说明" />
       </el-table>
-      <p>未就绪：{{ display(notReadyNetworks) }}；查询未知：{{ display(unknownNetworks) }}。</p>
+      <p>未就绪：{{ display(notReadyNetworks) }}；查询未知：{{ display(unknownNetworks) }}。查询耗时不是客户端隧道延迟；网卡计数从接口创建起累计，未采集时显示“—”。</p>
     </el-card>
     <el-card class="network-chart-card tl-card" style="margin-top: 20px;">
       <div slot="header">性能与历史趋势</div>
-      <el-empty description="未采集：响应时间、流量、健康评分、故障恢复时间及历史趋势；不显示模拟值。" :image-size="70" />
+      <el-empty description="未采集：客户端往返延迟、公网吞吐、健康评分、故障恢复时间及历史趋势；上方仅显示本次网卡计数和探测耗时。" :image-size="70" />
     </el-card>
   </div>
 </template>
@@ -160,6 +171,12 @@ export default {
   },
   methods: {
     display(value) { return value == null ? '—' : value },
+    formatBytes(value) {
+      if (!Number.isSafeInteger(value) || value < 0) return '—'
+      if (value < 1024) return value + ' B'
+      if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KiB'
+      return (value / (1024 * 1024)).toFixed(1) + ' MiB'
+    },
     async getAllStats() {
       if (this.loading || this.disposed) return
       this.loading = true

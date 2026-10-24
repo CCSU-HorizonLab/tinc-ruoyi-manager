@@ -80,6 +80,59 @@ test('single network uses stable selectors and ignores old network response afte
   assert.equal(view.loading, false)
 })
 
+test('real interface counters require two valid samples for a rate and never fake missing data', async () => {
+  const samples = [
+    { interfaceRxBytes: 1000, interfaceTxBytes: 0, trafficSampledAt: 1000 },
+    { interfaceRxBytes: 1250, interfaceTxBytes: 2000, trafficSampledAt: 3000 },
+    { interfaceRxBytes: null, interfaceTxBytes: null, trafficSampledAt: null }
+  ]
+  const { instance: view } = component('SingleNetWorkControl.vue', {
+    getSingleNetworkMonitor: async () => ({ data: {
+      networkId: 11, readiness: 'READY', nodeSummary: { total: 2, configured: 2 },
+      statusProbeMs: 0, interfaceName: 'tinc0', trafficSource: 'LINUX_INTERFACE_COUNTERS',
+      ...samples.shift()
+    } })
+  })
+  view.selectedNetwork = true; view.selectedNetworkId = 11
+  await view.getMonitorData()
+  assert.equal(view.interfaceRxBytes, 1000)
+  assert.equal(view.interfaceTxBytes, 0)
+  assert.equal(view.statusProbeMs, 0)
+  assert.equal(view.rxRateBps, null)
+  await view.getMonitorData()
+  assert.equal(view.rxRateBps, 1000)
+  assert.equal(view.txRateBps, 8000)
+  await view.getMonitorData()
+  assert.equal(view.interfaceRxBytes, null)
+  assert.equal(view.rxRateBps, null)
+  assert.equal(view.previousTrafficSample, null)
+})
+
+test('stale samples and counter resets never appear as a current traffic rate', async () => {
+  const samples = [
+    { interfaceRxBytes: 1000, interfaceTxBytes: 1000, trafficSampledAt: 1000 },
+    { interfaceRxBytes: 9000, interfaceTxBytes: 9000, trafficSampledAt: 301000 },
+    { interfaceRxBytes: 9250, interfaceTxBytes: 9250, trafficSampledAt: 303000 },
+    { interfaceRxBytes: 5, interfaceTxBytes: 5, trafficSampledAt: 305000 }
+  ]
+  const { instance: view } = component('SingleNetWorkControl.vue', {
+    getSingleNetworkMonitor: async () => ({ data: {
+      networkId: 11, readiness: 'READY', nodeSummary: { total: 1, configured: 1 },
+      interfaceName: 'tinc0', trafficSource: 'LINUX_INTERFACE_COUNTERS', ...samples.shift()
+    } })
+  })
+  view.selectedNetwork = true; view.selectedNetworkId = 11
+  await view.getMonitorData()
+  await view.getMonitorData()
+  assert.equal(view.rxRateBps, null)
+  assert.equal(view.interfaceRxBytes, 9000)
+  await view.getMonitorData()
+  assert.equal(view.rxRateBps, 1000)
+  await view.getMonitorData()
+  assert.equal(view.rxRateBps, null)
+  assert.equal(view.interfaceRxBytes, 5)
+})
+
 test('monitor views contain no synthetic charts or success fallbacks', () => {
   for (const file of ['SingleNetWorkControl.vue', 'NetworkStatus.vue']) {
     const { source } = component(file, {})

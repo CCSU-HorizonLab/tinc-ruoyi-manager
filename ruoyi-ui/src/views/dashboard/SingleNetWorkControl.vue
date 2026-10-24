@@ -76,7 +76,7 @@
               icon="el-icon-video-play" 
               @click="confirmSelection" 
               :disabled="!selectedServer || !selectedNetworkId">
-              进入实时监控
+              查看运行状态
             </el-button>
           </el-form-item>
         </el-form>
@@ -89,7 +89,7 @@
             <i class="el-icon-data-line"></i>
           </div>
           <h4 class="guidance-main-tip">选择一个 Access Server 和 Network 以查看实时运行状态</h4>
-          <p class="guidance-sub-tip">监控面板只读查询对应网关的 Tinc Runtime；流量、延迟与节点在线率暂未采集</p>
+          <p class="guidance-sub-tip">监控面板只读查询对应网关的 Tinc Runtime；网卡计数可采集，客户端延迟与节点在线率暂未采集</p>
         </div>
 
         <div class="guidance-features-grid">
@@ -163,12 +163,16 @@
         <p>查询时间：{{ observedAtLabel }}</p>
         <p>诊断代码：{{ failureCode || '—' }}</p>
         <p>{{ failureMessage || 'READY 仅代表网关运行时就绪，不等同于客户端握手或 Ping 成功。' }}</p>
+        <p>本次状态查询耗时：{{ statusProbeMs == null ? '—' : statusProbeMs + ' ms' }}（管理端到 Runtime 的查询，不是 VPN 往返延迟）</p>
+        <p>虚拟网卡：{{ interfaceName || '—' }}；累计接收 / 发送：{{ formatBytes(interfaceRxBytes) }} / {{ formatBytes(interfaceTxBytes) }}</p>
+        <p>本次网卡采样：{{ trafficSampledAt ? new Date(trafficSampledAt).toLocaleString() : '未采集' }}；区间接收 / 发送速率：{{ formatRate(rxRateBps) }} / {{ formatRate(txRateBps) }}</p>
+        <p>流量来自 Linux 虚拟网卡计数；速率至少需要两次有效采样，不能代表公网端口吞吐。</p>
         <p>登记节点：{{ display(nodeSummary.total) }}；已配置：{{ display(nodeSummary.configured) }}。</p>
         <p>节点在线率未采集。数据库“已配置”或历史状态不能替代有效期内的心跳证据。</p>
       </el-card>
       <el-card class="chart-card tl-card" style="margin-top: 20px;">
         <div slot="header">性能与历史趋势</div>
-        <el-empty description="未采集：响应时间、流量、健康评分、历史中断事件；不显示模拟值。" :image-size="70" />
+        <el-empty description="未采集：客户端往返延迟、公网吞吐、健康评分、历史中断事件；上方网卡速率仅由本页两次实测计数计算。" :image-size="70" />
       </el-card>
     </div>
   </div>
@@ -186,7 +190,10 @@ export default {
       servers: [], networks: [], selectedServer: '', selectedNetworkId: '',
       selectedNetwork: false, selectedNetworkName: '', readiness: 'UNKNOWN',
       queryError: '', failureCode: '', failureMessage: '', observedAt: null,
-      nodeSummary: { total: null, configured: null }
+      nodeSummary: { total: null, configured: null },
+      statusProbeMs: null, interfaceName: null, interfaceRxBytes: null,
+      interfaceTxBytes: null, trafficSampledAt: null, rxRateBps: null, txRateBps: null,
+      previousTrafficSample: null
     }
   },
   computed: {
@@ -210,6 +217,18 @@ export default {
   },
   methods: {
     display(value) { return value == null ? '—' : value },
+    formatBytes(value) {
+      if (!Number.isSafeInteger(value) || value < 0) return '—'
+      if (value < 1024) return value + ' B'
+      if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KiB'
+      return (value / (1024 * 1024)).toFixed(1) + ' MiB'
+    },
+    formatRate(value) {
+      if (!Number.isFinite(value) || value < 0) return '待二次采样'
+      if (value < 1000) return Math.round(value) + ' bit/s'
+      if (value < 1000000) return (value / 1000).toFixed(1) + ' kbit/s'
+      return (value / 1000000).toFixed(1) + ' Mbit/s'
+    },
     getServerOptions() {
       return listServerOptions().then(response => {
         this.servers = response.rows.map(server => ({ value: server.id, label: server.serverName }))
@@ -228,6 +247,7 @@ export default {
       this.selectedNetworkId = ''
       this.networks = []
       this.clearObservation()
+      this.previousTrafficSample = null
       if (serverId) this.getNetworksByServer(serverId)
     },
     confirmSelection() {
@@ -244,6 +264,13 @@ export default {
       this.failureMessage = ''
       this.queryError = ''
       this.nodeSummary = { total: null, configured: null }
+      this.statusProbeMs = null
+      this.interfaceName = null
+      this.interfaceRxBytes = null
+      this.interfaceTxBytes = null
+      this.trafficSampledAt = null
+      this.rxRateBps = null
+      this.txRateBps = null
     },
     async getMonitorData() {
       if (!this.selectedNetwork || this.loading) return
@@ -261,11 +288,38 @@ export default {
         this.failureCode = data.failureCode
         this.failureMessage = data.failureMessage
         this.nodeSummary = data.nodeSummary
+        this.statusProbeMs = Number.isSafeInteger(data.statusProbeMs) && data.statusProbeMs >= 0
+          ? data.statusProbeMs : null
+        this.interfaceName = data.interfaceName || null
+        if (data.trafficSource === 'LINUX_INTERFACE_COUNTERS' &&
+            Number.isSafeInteger(data.interfaceRxBytes) && data.interfaceRxBytes >= 0 &&
+            Number.isSafeInteger(data.interfaceTxBytes) && data.interfaceTxBytes >= 0 &&
+            Number.isSafeInteger(data.trafficSampledAt) && data.trafficSampledAt > 0) {
+          const previous = this.previousTrafficSample
+          const elapsedMs = previous ? data.trafficSampledAt - previous.sampledAt : 0
+          this.interfaceRxBytes = data.interfaceRxBytes
+          this.interfaceTxBytes = data.interfaceTxBytes
+          this.trafficSampledAt = data.trafficSampledAt
+          if (previous && previous.networkId === networkId && previous.interfaceName === data.interfaceName &&
+              elapsedMs >= 1000 && elapsedMs <= 120000 && data.interfaceRxBytes >= previous.rx &&
+              data.interfaceTxBytes >= previous.tx) {
+            const seconds = elapsedMs / 1000
+            this.rxRateBps = (data.interfaceRxBytes - previous.rx) * 8 / seconds
+            this.txRateBps = (data.interfaceTxBytes - previous.tx) * 8 / seconds
+          }
+          this.previousTrafficSample = {
+            networkId, interfaceName: data.interfaceName, sampledAt: data.trafficSampledAt,
+            rx: data.interfaceRxBytes, tx: data.interfaceTxBytes
+          }
+        } else {
+          this.previousTrafficSample = null
+        }
       } catch (_) {
         if (version !== this.requestVersion) return
         this.clearObservation()
         this.queryError = 'STATUS_QUERY_FAILED · 查询失败，当前状态未知，请重试。'
         this.failureCode = 'STATUS_QUERY_FAILED'
+        this.previousTrafficSample = null
       } finally {
         if (version === this.requestVersion) this.loading = false
       }
@@ -289,6 +343,7 @@ export default {
       this.selectedNetworkName = ''
       this.networks = []
       this.clearObservation()
+      this.previousTrafficSample = null
     }
   }
 }
