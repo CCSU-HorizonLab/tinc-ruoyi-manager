@@ -15,6 +15,10 @@ public class TincNetworkStatus {
     private boolean configValid;
     private boolean privateKeyPresent;
     private String lastReloadResult;
+    /** Linux virtual-interface counters since this interface was created, not VPN throughput. */
+    private Long interfaceRxBytes;
+    private Long interfaceTxBytes;
+    private Long trafficSampledAt;
     private String readiness = "NOT_READY";
     private String failureCode;
     private String failureMessage;
@@ -47,6 +51,12 @@ public class TincNetworkStatus {
     public void setPrivateKeyPresent(boolean privateKeyPresent) { this.privateKeyPresent = privateKeyPresent; }
     public String getLastReloadResult() { return lastReloadResult; }
     public void setLastReloadResult(String lastReloadResult) { this.lastReloadResult = lastReloadResult; }
+    public Long getInterfaceRxBytes() { return interfaceRxBytes; }
+    public void setInterfaceRxBytes(Long interfaceRxBytes) { this.interfaceRxBytes = interfaceRxBytes; }
+    public Long getInterfaceTxBytes() { return interfaceTxBytes; }
+    public void setInterfaceTxBytes(Long interfaceTxBytes) { this.interfaceTxBytes = interfaceTxBytes; }
+    public Long getTrafficSampledAt() { return trafficSampledAt; }
+    public void setTrafficSampledAt(Long trafficSampledAt) { this.trafficSampledAt = trafficSampledAt; }
     public String getReadiness() { return readiness; }
     public void setReadiness(String readiness) { this.readiness = readiness; }
     public String getFailureCode() { return failureCode; }

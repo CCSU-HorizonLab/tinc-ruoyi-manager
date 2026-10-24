@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -108,18 +109,34 @@ public class NetworkMonitorController extends BaseController {
         result.put("failureCode", "STATUS_QUERY_FAILED");
         result.put("failureMessage", "运行状态查询失败，请检查接入服务器和 Agent");
         result.put("source", "RUNTIME_PROBE");
+        result.put("interfaceName", null);
+        result.put("interfaceRxBytes", null);
+        result.put("interfaceTxBytes", null);
+        result.put("trafficSampledAt", null);
+        result.put("trafficSource", null);
+        result.put("statusProbeMs", null);
         try {
             if (server == null) {
                 result.put("failureCode", "LEGACY_RELATION_MISSING");
                 result.put("failureMessage", "网络缺少有效的接入服务器关联");
             } else {
+                long started = System.nanoTime();
                 TincNetworkStatus status = runtimeRouter.inspectNetwork(server, network.getNetworkName());
+                result.put("statusProbeMs", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
                 if (status != null && ("READY".equals(status.getReadiness())
                         || "NOT_READY".equals(status.getReadiness())
                         || "DEGRADED".equals(status.getReadiness()))) {
                     result.put("readiness", status.getReadiness());
                     result.put("failureCode", safeCode(status.getFailureCode()));
                     result.put("failureMessage", status.isReady() ? null : "运行时未就绪，请查看网络诊断");
+                    result.put("interfaceName", status.getInterfaceName());
+                    if (status.getInterfaceRxBytes() != null && status.getInterfaceTxBytes() != null
+                            && status.getTrafficSampledAt() != null) {
+                        result.put("interfaceRxBytes", status.getInterfaceRxBytes());
+                        result.put("interfaceTxBytes", status.getInterfaceTxBytes());
+                        result.put("trafficSampledAt", status.getTrafficSampledAt());
+                        result.put("trafficSource", "LINUX_INTERFACE_COUNTERS");
+                    }
                 }
             }
         } catch (RuntimeException failure) {

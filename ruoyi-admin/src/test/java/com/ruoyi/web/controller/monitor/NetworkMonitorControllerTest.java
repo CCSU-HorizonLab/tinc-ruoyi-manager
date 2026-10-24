@@ -118,6 +118,34 @@ class NetworkMonitorControllerTest {
     }
 
     @Test
+    void exposesMeasuredInterfaceCountersButNeverInventsMissingTraffic() {
+        MangeServer server = server(3L, "LOCAL");
+        when(networks.selectTincNetworkMangeById(8L)).thenReturn(network(8L, 3L, "new_network"));
+        when(servers.selectMangeServerById(3L)).thenReturn(server);
+        TincNetworkStatus measured = status("READY");
+        measured.setInterfaceName("tinc0");
+        measured.setInterfaceRxBytes(0L);
+        measured.setInterfaceTxBytes(8192L);
+        measured.setTrafficSampledAt(123456789L);
+        when(router.inspectNetwork(server, "new_network")).thenReturn(measured);
+
+        Map<String, Object> result = data(controller.getSingleStats(8L));
+        assertEquals("LINUX_INTERFACE_COUNTERS", result.get("trafficSource"));
+        assertEquals("tinc0", result.get("interfaceName"));
+        assertEquals(0L, result.get("interfaceRxBytes"));
+        assertEquals(8192L, result.get("interfaceTxBytes"));
+        assertEquals(123456789L, result.get("trafficSampledAt"));
+        assertNotNull(result.get("statusProbeMs"));
+        assertNull(((Map<?, ?>) result.get("responseTime")).get("value"));
+
+        measured.setInterfaceTxBytes(null);
+        result = data(controller.getSingleStats(8L));
+        assertNull(result.get("trafficSource"));
+        assertNull(result.get("interfaceRxBytes"));
+        assertNull(result.get("interfaceTxBytes"));
+    }
+
+    @Test
     void invalidOrMissingNetworkNeverProbesRuntime() {
         assertEquals(500, controller.getSingleStats(-1L).get("code"));
         assertEquals(500, controller.getSingleStats(999L).get("code"));

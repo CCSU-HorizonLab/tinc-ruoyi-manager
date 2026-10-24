@@ -55,6 +55,7 @@ public class LocalTincRuntimeManager implements TincRuntimeManager {
     private final Path configRoot;
     private final Duration commandTimeout;
     private final Duration readyTimeout;
+    private final InterfaceTrafficReader trafficReader = new InterfaceTrafficReader();
 
     @Autowired
     public LocalTincRuntimeManager(
@@ -226,6 +227,12 @@ public class LocalTincRuntimeManager implements TincRuntimeManager {
                 Matcher matcher = INET_OUTPUT.matcher(addr.getOutput());
                 if (matcher.find()) {
                     status.setActualVpnIp(matcher.group(1));
+                }
+                long[] traffic = trafficReader.read(status.getInterfaceName());
+                if (traffic != null) {
+                    status.setInterfaceRxBytes(traffic[0]);
+                    status.setInterfaceTxBytes(traffic[1]);
+                    status.setTrafficSampledAt(System.currentTimeMillis());
                 }
             }
             status.setTcpListening(isListening("-ltnp", status.getPort()));
