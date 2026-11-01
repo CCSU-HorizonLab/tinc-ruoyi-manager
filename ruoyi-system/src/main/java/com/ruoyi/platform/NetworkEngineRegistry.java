@@ -10,7 +10,7 @@ import java.util.Optional;
 import java.util.TreeMap;
 import org.springframework.stereotype.Component;
 
-/** Discovers installed engine providers without coupling engine choice to server placement. */
+/** Discovers Management providers without coupling engine choice to server placement. */
 @Component
 public class NetworkEngineRegistry {
     private final Map<String, NetworkEngineProvider> providers;
@@ -46,6 +46,6 @@ public class NetworkEngineRegistry {
 
     public NetworkEngineProvider require(String engineId) {
         return find(engineId).orElseThrow(
-                () -> new IllegalArgumentException("未安装的网络引擎: " + engineId));
+                () -> new IllegalArgumentException("未注册的网络引擎: " + engineId));
     }
 }

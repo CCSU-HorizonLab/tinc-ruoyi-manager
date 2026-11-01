@@ -5,7 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** Immutable, non-secret metadata describing one installed network engine. */
+/** Immutable, non-secret metadata for a Management-registered engine; not a server probe. */
 public final class NetworkEngineDescriptor {
     private static final Pattern ID = Pattern.compile("[a-z][a-z0-9-]{0,63}");
 
