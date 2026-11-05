@@ -49,7 +49,7 @@ Phase 1C-S 已以 Spring MVC HTTP/JSON 测试及隔离 Redis 集成测试核对�
 
 Keepalive 不轮换 `token`，只在旧 Token 尚有效、节点仍获授权、Redis 原子校验成功时延长其 1800 秒 TTL。已过期或已撤销 Token 不会复活。
 
-新版服务端的 Keepalive 成功与错误响应均带 `X-Tinc-Request-Id: <UUID>` 和 `Cache-Control: no-store`。请求编号每次重新生成，与服务端“客户端心跳结果”日志中的 `requestId` 对应；它不包含 Token、节点身份或授权信息，不改变 JSON 响应和租约语义。客户端可以在脱敏诊断日志中记录该响应头；旧版服务端没有此头时，客户端仍应按原有 HTTP 状态、业务码和租约字段处理。请求未到达后端时不会获得该编号，不能据此断言客户端没有尝试发送。此新增响应头须部署新版 Management 后才在线上生效。
+新版服务端中，进入 Keepalive Controller 的请求在成功及业务错误响应上均带 `X-Tinc-Request-Id: <UUID>` 和 `Cache-Control: no-store`。请求编号每次重新生成，与服务端“客户端心跳结果”日志中的 `requestId` 对应；它不包含 Token、节点身份或授权信息，不改变 JSON 响应和租约语义。客户端可以在脱敏诊断日志中记录该响应头；旧版服务端没有此头时，客户端仍应按原有 HTTP 状态、业务码和租约字段处理。网络失败或请求体在进入 Controller 前被 Spring MVC 拒绝时可能没有该编号，不能据此断言客户端没有尝试发送。此新增响应头须部署新版 Management 后才在线上生效。
 
 ## 3. 路由快照
 
