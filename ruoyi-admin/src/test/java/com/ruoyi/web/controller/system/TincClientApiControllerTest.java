@@ -22,6 +22,7 @@ import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockitoAnnotations;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -30,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -110,6 +112,12 @@ class TincClientApiControllerTest {
             assertTrue(messages.contains("code=CLIENT_TOKEN_INVALID, nodeId=null, stage=TOKEN_AUTH"));
             assertTrue(messages.contains("code=CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE, nodeId=5, stage=ROUTE_SNAPSHOT"));
             assertFalse(messages.contains(secretToken));
+            ArgumentCaptor<String> requestIds = ArgumentCaptor.forClass(String.class);
+            verify(response, times(3)).setHeader(eq("X-Tinc-Request-Id"), requestIds.capture());
+            assertEquals(3, new HashSet<>(requestIds.getAllValues()).size());
+            for (String requestId : requestIds.getAllValues()) {
+                assertTrue(messages.contains("requestId=" + requestId));
+            }
         } finally {
             logger.detachAppender(captured);
             captured.stop();

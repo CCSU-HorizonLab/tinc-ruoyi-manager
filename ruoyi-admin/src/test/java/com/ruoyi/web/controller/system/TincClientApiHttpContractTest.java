@@ -92,10 +92,13 @@ class TincClientApiHttpContractTest {
         assertEquals(120, login.getIntValue("route_lease_seconds"));
         System.out.println("PHASE1C_LOGIN_JSON=" + login.toJSONString().replace("integration-test-token", "<redacted>"));
 
-        JSONObject keepalive = body(http.perform(post("/api/tinc/client/keepalive")
+        MvcResult keepaliveResponse = http.perform(post("/api/tinc/client/keepalive")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"sid\":\"client_a\",\"token\":\"integration-test-token\"}"))
-                .andExpect(status().isOk()).andReturn());
+                .andExpect(status().isOk()).andReturn();
+        assertEquals("no-store", keepaliveResponse.getResponse().getHeader("Cache-Control"));
+        java.util.UUID.fromString(keepaliveResponse.getResponse().getHeader("X-Tinc-Request-Id"));
+        JSONObject keepalive = body(keepaliveResponse);
         assertEquals("success", keepalive.getString("status"));
         assertEquals("心跳成功", keepalive.getString("msg"));
         assertRoutesAndRevision(keepalive, "10.0.11.1/32", "10.0.11.212/32");
@@ -156,6 +159,8 @@ class TincClientApiHttpContractTest {
         MvcResult result = http.perform(post("/api/tinc/client/keepalive")
                 .contentType(MediaType.APPLICATION_JSON).content(request))
                 .andExpect(status().is(expectedHttpStatus)).andReturn();
+        assertEquals("no-store", result.getResponse().getHeader("Cache-Control"));
+        java.util.UUID.fromString(result.getResponse().getHeader("X-Tinc-Request-Id"));
         return body(result);
     }
 

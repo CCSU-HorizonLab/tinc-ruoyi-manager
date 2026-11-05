@@ -649,6 +649,9 @@ public class TincClientApiController {
     public JSONObject keepAlive(@RequestBody Map<String, String> params,
                                 javax.servlet.http.HttpServletResponse response) {
         long startedNanos = System.nanoTime();
+        String requestId = java.util.UUID.randomUUID().toString();
+        response.setHeader("X-Tinc-Request-Id", requestId);
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         String nodeName = params.get("sid");
         String token = params.get("token");
         JSONObject result = new JSONObject();
@@ -658,31 +661,31 @@ public class TincClientApiController {
         try {
             if (!isValidTincIdentifier(nodeName)) {
                 return keepaliveError(response, HttpStatus.BAD_REQUEST,
-                        "CLIENT_SID_INVALID", "节点名称无效", nodeId, stage, startedNanos);
+                        "CLIENT_SID_INVALID", "节点名称无效", nodeId, stage, startedNanos, requestId);
             }
             stage = "TOKEN_REVOKE_CHECK";
             if (isRevokedClientToken(token)) {
                 return keepaliveError(response, HttpStatus.GONE,
-                        "CLIENT_NODE_REVOKED", "节点已被撤销", nodeId, stage, startedNanos);
+                        "CLIENT_NODE_REVOKED", "节点已被撤销", nodeId, stage, startedNanos, requestId);
             }
 
             stage = "TOKEN_AUTH";
             TincNodeMange node = findTokenBoundNode(findExactNodes(nodeName), token);
             if (node == null) {
                 return keepaliveError(response, HttpStatus.UNAUTHORIZED,
-                        "CLIENT_TOKEN_INVALID", "客户端会话无效或已过期", nodeId, stage, startedNanos);
+                        "CLIENT_TOKEN_INVALID", "客户端会话无效或已过期", nodeId, stage, startedNanos, requestId);
             }
             nodeId = node.getId();
             stage = "NODE_AUTHORIZATION";
             if (!TincClientRouteSnapshot.eligible(node)) {
                 return keepaliveError(response, HttpStatus.GONE,
-                        "CLIENT_NODE_REVOKED", "节点已被撤销或禁用", nodeId, stage, startedNanos);
+                        "CLIENT_NODE_REVOKED", "节点已被撤销或禁用", nodeId, stage, startedNanos, requestId);
             }
             stage = "NETWORK_RESOLVE";
             TincNetworkMange network = resolveNetworkForNode(node);
             if (network == null) {
                 return keepaliveError(response, HttpStatus.SERVICE_UNAVAILABLE,
-                        "CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE", "授权路由暂时不可用", nodeId, stage, startedNanos);
+                        "CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE", "授权路由暂时不可用", nodeId, stage, startedNanos, requestId);
             }
             stage = "ROUTE_SNAPSHOT";
             TincClientRouteSnapshot.Snapshot snapshot;
@@ -691,7 +694,7 @@ public class TincClientApiController {
             } catch (RuntimeException e) {
                 log.warn("心跳路由快照不可用: nodeId={}, errorType={}", node.getId(), e.getClass().getSimpleName());
                 return keepaliveError(response, HttpStatus.SERVICE_UNAVAILABLE,
-                        "CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE", "授权路由暂时不可用", nodeId, stage, startedNanos);
+                        "CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE", "授权路由暂时不可用", nodeId, stage, startedNanos, requestId);
             }
 
             stage = "STATUS_PERSIST";
@@ -702,7 +705,7 @@ public class TincClientApiController {
             if (updated != 1 && (updated != 0 || !isClientStatusPersisted(node.getId(), heartbeatUpdate))) {
                 log.warn("客户端心跳未持久化: nodeId={}, updatedRows={}", node.getId(), updated);
                 return keepaliveError(response, HttpStatus.SERVICE_UNAVAILABLE,
-                        "CLIENT_KEEPALIVE_FAILED", "心跳服务暂时不可用", nodeId, stage, startedNanos);
+                        "CLIENT_KEEPALIVE_FAILED", "心跳服务暂时不可用", nodeId, stage, startedNanos, requestId);
             }
 
             // Renew last: a revoked/expired token cannot be restored by a racing heartbeat.
@@ -710,23 +713,23 @@ public class TincClientApiController {
             if (!sessionStore.renew(node.getId(), token)) {
                 if (isRevokedClientToken(token)) {
                     return keepaliveError(response, HttpStatus.GONE,
-                            "CLIENT_NODE_REVOKED", "节点已被撤销", nodeId, stage, startedNanos);
+                            "CLIENT_NODE_REVOKED", "节点已被撤销", nodeId, stage, startedNanos, requestId);
                 }
                 return keepaliveError(response, HttpStatus.UNAUTHORIZED,
-                        "CLIENT_TOKEN_INVALID", "客户端会话无效或已过期", nodeId, stage, startedNanos);
+                        "CLIENT_TOKEN_INVALID", "客户端会话无效或已过期", nodeId, stage, startedNanos, requestId);
             }
             result.put("status", "success");
             result.put("msg", "心跳成功");
             putRouteSnapshot(result, snapshot);
-            log.info("客户端心跳结果: outcome=LEASE_ISSUED, httpStatus=200, nodeId={}, networkId={}, "
+            log.info("客户端心跳结果: requestId={}, outcome=LEASE_ISSUED, httpStatus=200, nodeId={}, networkId={}, "
                             + "routeCount={}, leaseSeconds={}, elapsedMs={}",
-                    nodeId, network.getId(), snapshot.getRoutes().size(),
+                    requestId, nodeId, network.getId(), snapshot.getRoutes().size(),
                     TincClientSessionStore.ROUTE_LEASE_SECONDS, elapsedMillis(startedNanos));
         } catch (Exception e) {
-            log.warn("客户端心跳异常: nodeId={}, stage={}, errorType={}",
-                    nodeId, stage, e.getClass().getSimpleName());
+            log.warn("客户端心跳异常: requestId={}, nodeId={}, stage={}, errorType={}",
+                    requestId, nodeId, stage, e.getClass().getSimpleName());
             return keepaliveError(response, HttpStatus.SERVICE_UNAVAILABLE,
-                    "CLIENT_KEEPALIVE_FAILED", "心跳服务暂时不可用", nodeId, stage, startedNanos);
+                    "CLIENT_KEEPALIVE_FAILED", "心跳服务暂时不可用", nodeId, stage, startedNanos, requestId);
         }
 
         return result;
@@ -1019,9 +1022,11 @@ public class TincClientApiController {
     }
 
     private JSONObject keepaliveError(javax.servlet.http.HttpServletResponse response, HttpStatus status,
-                                      String code, String message, Long nodeId, String stage, long startedNanos) {
-        log.warn("客户端心跳结果: outcome=REJECTED, httpStatus={}, code={}, nodeId={}, stage={}, elapsedMs={}",
-                status.value(), code, nodeId, stage, elapsedMillis(startedNanos));
+                                      String code, String message, Long nodeId, String stage, long startedNanos,
+                                      String requestId) {
+        log.warn("客户端心跳结果: requestId={}, outcome=REJECTED, httpStatus={}, code={}, nodeId={}, "
+                        + "stage={}, elapsedMs={}",
+                requestId, status.value(), code, nodeId, stage, elapsedMillis(startedNanos));
         return clientStateError(response, status, code, message);
     }
 
