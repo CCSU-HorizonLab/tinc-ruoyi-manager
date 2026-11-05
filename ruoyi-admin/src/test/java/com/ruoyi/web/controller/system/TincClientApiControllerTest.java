@@ -16,6 +16,9 @@ import com.ruoyi.common.tinc.access.AccessOperationResult;
 import com.ruoyi.common.tinc.runtime.TincNetworkStatus;
 import com.ruoyi.common.utils.RsaUtils;
 import com.ruoyi.common.security.TincNodePasswordCodec;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -30,8 +33,11 @@ import java.util.HashMap;
 import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.slf4j.LoggerFactory;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -71,6 +77,43 @@ class TincClientApiControllerTest {
                     String raw = invocation.getArgument(1);
                     return TincNodePasswordCodec.matches(raw, node.getPassword());
                 });
+    }
+
+    @Test
+    void keepaliveLogsOutcomeAndFailureStageWithoutTokenOrExceptionMessage() {
+        String secretToken = "sensitive-token-must-not-be-logged";
+        TincNodeMange node = node(5L, 8L, "new_client", "secret", "new_network", "10.0.11.211");
+        when(nodeService.selectByNodeNameExact("new_client")).thenReturn(Collections.singletonList(node));
+        when(nodeService.updateClientStatus(anyLong(), any(), any())).thenReturn(1);
+        Map<String, String> request = new HashMap<>();
+        request.put("sid", "new_client");
+        request.put("token", secretToken);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(TincClientApiController.class);
+        ListAppender<ILoggingEvent> captured = new ListAppender<>();
+        captured.start();
+        logger.addAppender(captured);
+        try {
+            assertEquals("success", controller.keepAlive(request, response).getString("status"));
+            when(sessionStore.isValid(5L, secretToken)).thenReturn(false);
+            assertEquals("CLIENT_TOKEN_INVALID", controller.keepAlive(request, response).getString("code"));
+            when(sessionStore.isValid(5L, secretToken)).thenReturn(true);
+            when(nodeService.selectTincNodeMangeList(any()))
+                    .thenThrow(new IllegalStateException("secret: " + secretToken));
+            assertEquals("CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE",
+                    controller.keepAlive(request, response).getString("code"));
+
+            String messages = captured.list.stream()
+                    .map(ILoggingEvent::getFormattedMessage).collect(Collectors.joining("\n"));
+            assertTrue(messages.contains("outcome=LEASE_ISSUED"));
+            assertTrue(messages.contains("httpStatus=200, nodeId=5, networkId=8"));
+            assertTrue(messages.contains("code=CLIENT_TOKEN_INVALID, nodeId=null, stage=TOKEN_AUTH"));
+            assertTrue(messages.contains("code=CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE, nodeId=5, stage=ROUTE_SNAPSHOT"));
+            assertFalse(messages.contains(secretToken));
+        } finally {
+            logger.detachAppender(captured);
+            captured.stop();
+        }
     }
 
     @Test
