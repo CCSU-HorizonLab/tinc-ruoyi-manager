@@ -2,7 +2,7 @@
 
 本文件描述当前 Java 服务端源码的接口事实。`allowed_routes` 保持已有 `string[]` 形态，以兼容当前 Rust 客户端；示例中的 `scope` 对象数组**没有**替换现有字段。配置 ZIP 的两项安全白名单未变。
 
-Phase 1C-S 已以 Spring MVC HTTP/JSON 测试及隔离 Redis 集成测试核对本文字段和语义；实际脱敏响应与验证边界见 [Phase 1C-S 集成报告](TINCLINK_PHASE1C_SERVER_INTEGRATION_REPORT.md)。未在生产环境部署或验证。
+Phase 1C-S 已以 Spring MVC HTTP/JSON 测试及隔离 Redis 集成测试核对路由与会话字段；实际脱敏响应与当时的验证边界见 [Phase 1C-S 集成报告](TINCLINK_PHASE1C_SERVER_INTEGRATION_REPORT.md)。本文以当前服务端源码为准，线上是否生效仍须核对实际部署版本。
 
 ## 1. 登录
 
@@ -48,6 +48,8 @@ Phase 1C-S 已以 Spring MVC HTTP/JSON 测试及隔离 Redis 集成测试核对�
 ```
 
 Keepalive 不轮换 `token`，只在旧 Token 尚有效、节点仍获授权、Redis 原子校验成功时延长其 1800 秒 TTL。已过期或已撤销 Token 不会复活。
+
+新版服务端的 Keepalive 成功与错误响应均带 `X-Tinc-Request-Id: <UUID>` 和 `Cache-Control: no-store`。请求编号每次重新生成，与服务端“客户端心跳结果”日志中的 `requestId` 对应；它不包含 Token、节点身份或授权信息，不改变 JSON 响应和租约语义。客户端可以在脱敏诊断日志中记录该响应头；旧版服务端没有此头时，客户端仍应按原有 HTTP 状态、业务码和租约字段处理。请求未到达后端时不会获得该编号，不能据此断言客户端没有尝试发送。此新增响应头须部署新版 Management 后才在线上生效。
 
 ## 3. 路由快照
 
