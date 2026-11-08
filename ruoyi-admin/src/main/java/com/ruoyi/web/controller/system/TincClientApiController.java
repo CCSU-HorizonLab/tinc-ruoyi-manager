@@ -722,8 +722,8 @@ public class TincClientApiController {
             result.put("msg", "心跳成功");
             putRouteSnapshot(result, snapshot);
             log.info("客户端心跳结果: requestId={}, outcome=LEASE_ISSUED, httpStatus=200, nodeId={}, networkId={}, "
-                            + "routeCount={}, leaseSeconds={}, elapsedMs={}",
-                    requestId, nodeId, network.getId(), snapshot.getRoutes().size(),
+                            + "routeRevision={}, routeCount={}, leaseSeconds={}, elapsedMs={}",
+                    requestId, nodeId, network.getId(), snapshot.getRevision(), snapshot.getRoutes().size(),
                     TincClientSessionStore.ROUTE_LEASE_SECONDS, elapsedMillis(startedNanos));
         } catch (Exception e) {
             log.warn("客户端心跳异常: requestId={}, nodeId={}, stage={}, errorType={}",

@@ -96,7 +96,8 @@ class TincClientApiControllerTest {
         captured.start();
         logger.addAppender(captured);
         try {
-            assertEquals("success", controller.keepAlive(request, response).getString("status"));
+            JSONObject success = controller.keepAlive(request, response);
+            assertEquals("success", success.getString("status"));
             when(sessionStore.isValid(5L, secretToken)).thenReturn(false);
             assertEquals("CLIENT_TOKEN_INVALID", controller.keepAlive(request, response).getString("code"));
             when(sessionStore.isValid(5L, secretToken)).thenReturn(true);
@@ -109,6 +110,7 @@ class TincClientApiControllerTest {
                     .map(ILoggingEvent::getFormattedMessage).collect(Collectors.joining("\n"));
             assertTrue(messages.contains("outcome=LEASE_ISSUED"));
             assertTrue(messages.contains("httpStatus=200, nodeId=5, networkId=8"));
+            assertTrue(messages.contains("routeRevision=" + success.getString("route_revision")));
             assertTrue(messages.contains("code=CLIENT_TOKEN_INVALID, nodeId=null, stage=TOKEN_AUTH"));
             assertTrue(messages.contains("code=CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE, nodeId=5, stage=ROUTE_SNAPSHOT"));
             assertFalse(messages.contains(secretToken));
