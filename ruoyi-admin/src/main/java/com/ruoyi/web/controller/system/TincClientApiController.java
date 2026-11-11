@@ -692,7 +692,8 @@ public class TincClientApiController {
             try {
                 snapshot = routeSnapshot.build(node, network);
             } catch (RuntimeException e) {
-                log.warn("心跳路由快照不可用: nodeId={}, errorType={}", node.getId(), e.getClass().getSimpleName());
+                log.warn("心跳路由快照不可用: requestId={}, nodeId={}, errorType={}",
+                        requestId, node.getId(), e.getClass().getSimpleName());
                 return keepaliveError(response, HttpStatus.SERVICE_UNAVAILABLE,
                         "CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE", "授权路由暂时不可用", nodeId, stage, startedNanos, requestId);
             }
@@ -703,7 +704,8 @@ public class TincClientApiController {
             heartbeatUpdate.setNodeStatus("在线");
             int updated = nodeMangeService.updateClientStatus(node.getId(), null, "在线");
             if (updated != 1 && (updated != 0 || !isClientStatusPersisted(node.getId(), heartbeatUpdate))) {
-                log.warn("客户端心跳未持久化: nodeId={}, updatedRows={}", node.getId(), updated);
+                log.warn("客户端心跳未持久化: requestId={}, nodeId={}, updatedRows={}",
+                        requestId, node.getId(), updated);
                 return keepaliveError(response, HttpStatus.SERVICE_UNAVAILABLE,
                         "CLIENT_KEEPALIVE_FAILED", "心跳服务暂时不可用", nodeId, stage, startedNanos, requestId);
             }

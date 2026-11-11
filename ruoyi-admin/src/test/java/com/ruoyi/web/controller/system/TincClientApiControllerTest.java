@@ -105,6 +105,10 @@ class TincClientApiControllerTest {
                     .thenThrow(new IllegalStateException("secret: " + secretToken));
             assertEquals("CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE",
                     controller.keepAlive(request, response).getString("code"));
+            doReturn(Collections.emptyList()).when(nodeService).selectTincNodeMangeList(any());
+            when(nodeService.updateClientStatus(anyLong(), any(), any())).thenReturn(0);
+            when(nodeService.selectTincNodeMangeById(5L)).thenReturn(null);
+            assertEquals("CLIENT_KEEPALIVE_FAILED", controller.keepAlive(request, response).getString("code"));
 
             String messages = captured.list.stream()
                     .map(ILoggingEvent::getFormattedMessage).collect(Collectors.joining("\n"));
@@ -115,8 +119,10 @@ class TincClientApiControllerTest {
             assertTrue(messages.contains("code=CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE, nodeId=5, stage=ROUTE_SNAPSHOT"));
             assertFalse(messages.contains(secretToken));
             ArgumentCaptor<String> requestIds = ArgumentCaptor.forClass(String.class);
-            verify(response, times(3)).setHeader(eq("X-Tinc-Request-Id"), requestIds.capture());
-            assertEquals(3, new HashSet<>(requestIds.getAllValues()).size());
+            verify(response, times(4)).setHeader(eq("X-Tinc-Request-Id"), requestIds.capture());
+            assertEquals(4, new HashSet<>(requestIds.getAllValues()).size());
+            assertTrue(messages.contains("心跳路由快照不可用: requestId=" + requestIds.getAllValues().get(2)));
+            assertTrue(messages.contains("客户端心跳未持久化: requestId=" + requestIds.getAllValues().get(3)));
             for (String requestId : requestIds.getAllValues()) {
                 assertTrue(messages.contains("requestId=" + requestId));
             }
