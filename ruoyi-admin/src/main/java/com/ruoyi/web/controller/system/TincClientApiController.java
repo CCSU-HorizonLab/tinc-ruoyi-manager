@@ -87,10 +87,18 @@ public class TincClientApiController {
      * 2. 过渡兼容模式：sid + password（已废弃；仅当 nodeName 全局唯一候选时允许登录；同名 > 1 返回 CLIENT_LEGACY_LOGIN_AMBIGUOUS）
      */
     @PostMapping("/login")
-    public JSONObject login(@RequestBody Map<String, String> params,
+    public JSONObject login(@RequestBody(required = false) Map<String, String> params,
                             javax.servlet.http.HttpServletResponse response) {
         log.info("========== 客户端登录接口被调用 ==========");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+        JSONObject result = new JSONObject();
+        if (params == null) {
+            response.setStatus(HttpStatus.BAD_REQUEST.value());
+            result.put("status", 0);
+            result.put("code", "CLIENT_REQUEST_INVALID");
+            result.put("msg", "请求体必须为 JSON 对象");
+            return result;
+        }
 
         String accessCode = params.get("accessCode");
         if (StringUtils.isEmpty(accessCode)) {
@@ -110,8 +118,6 @@ public class TincClientApiController {
         } else {
             log.warn("客户端登录请求 [已弃用的 Legacy SID 模式]");
         }
-
-        JSONObject result = new JSONObject();
 
         try {
             long retryAfter = loginLimiter.consume(loginTarget);

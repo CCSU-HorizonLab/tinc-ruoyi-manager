@@ -170,6 +170,24 @@ class TincClientApiHttpContractTest {
         verify(sessions, never()).issue(anyLong());
     }
 
+    @Test
+    void loginRejectsJsonNullWithoutInvokingAuthenticationServices() throws Exception {
+        MvcResult result = http.perform(post("/api/tinc/client/login")
+                .contentType(MediaType.APPLICATION_JSON).content("null"))
+                .andExpect(status().isBadRequest()).andReturn();
+
+        assertEquals("no-store", result.getResponse().getHeader("Cache-Control"));
+        JSONObject error = body(result);
+        assertEquals(0, error.getIntValue("status"));
+        assertEquals("CLIENT_REQUEST_INVALID", error.getString("code"));
+        assertFalse(error.containsKey("token"));
+        assertFalse(error.containsKey("allowed_routes"));
+        assertFalse(error.containsKey("route_revision"));
+        assertFalse(error.containsKey("route_lease_seconds"));
+        verifyNoInteractions(nodes, networks, limiter);
+        verify(sessions, never()).issue(anyLong());
+    }
+
     private JSONObject response(String request, int expectedHttpStatus) throws Exception {
         MvcResult result = http.perform(post("/api/tinc/client/keepalive")
                 .contentType(MediaType.APPLICATION_JSON).content(request))
