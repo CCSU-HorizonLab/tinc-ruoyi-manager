@@ -126,6 +126,21 @@ class TincClientApiHttpContractTest {
     }
 
     @Test
+    void keepaliveRejectsJsonNullWithStableErrorAndRequestId() throws Exception {
+        MvcResult result = http.perform(post("/api/tinc/client/keepalive")
+                .contentType(MediaType.APPLICATION_JSON).content("null"))
+                .andExpect(status().isBadRequest()).andReturn();
+
+        assertEquals("no-store", result.getResponse().getHeader("Cache-Control"));
+        java.util.UUID.fromString(result.getResponse().getHeader("X-Tinc-Request-Id"));
+        JSONObject error = body(result);
+        assertEquals("CLIENT_REQUEST_INVALID", error.getString("code"));
+        assertNoLease(error);
+        verifyNoInteractions(nodes, networks);
+        verify(sessions, never()).renew(anyLong(), anyString());
+    }
+
+    @Test
     void revokedMemberChangesAuthenticatedHttpRouteSnapshot() throws Exception {
         String request = "{\"sid\":\"client_a\",\"token\":\"integration-test-token\"}";
         JSONObject before = response(request, 200);

@@ -646,19 +646,24 @@ public class TincClientApiController {
      * 客户端心跳接口，维持节点在线状态
      */
     @PostMapping("/keepalive")
-    public JSONObject keepAlive(@RequestBody Map<String, String> params,
+    public JSONObject keepAlive(@RequestBody(required = false) Map<String, String> params,
                                 javax.servlet.http.HttpServletResponse response) {
         long startedNanos = System.nanoTime();
         String requestId = java.util.UUID.randomUUID().toString();
         response.setHeader("X-Tinc-Request-Id", requestId);
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-        String nodeName = params.get("sid");
-        String token = params.get("token");
         JSONObject result = new JSONObject();
         Long nodeId = null;
-        String stage = "SID_VALIDATE";
+        String stage = "REQUEST_VALIDATE";
 
         try {
+            if (params == null) {
+                return keepaliveError(response, HttpStatus.BAD_REQUEST,
+                        "CLIENT_REQUEST_INVALID", "请求体必须为 JSON 对象", nodeId, stage, startedNanos, requestId);
+            }
+            String nodeName = params.get("sid");
+            String token = params.get("token");
+            stage = "SID_VALIDATE";
             if (!isValidTincIdentifier(nodeName)) {
                 return keepaliveError(response, HttpStatus.BAD_REQUEST,
                         "CLIENT_SID_INVALID", "节点名称无效", nodeId, stage, startedNanos, requestId);
