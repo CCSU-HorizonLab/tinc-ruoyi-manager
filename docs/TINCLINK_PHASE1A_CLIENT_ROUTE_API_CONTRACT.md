@@ -10,6 +10,8 @@ Phase 1C-S 已以 Spring MVC HTTP/JSON 测试及隔离 Redis 集成测试核对�
 
 请求体：`{"accessCode":"TL-XXXX-XXXX","password":"..."}`。`access_code` 是 `accessCode` 的兼容别名；仅旧客户端可用 `sid` 代替接入码，且节点名全局不唯一时拒绝。不能通过请求指定 `networkId`、对端 IP 或路由。
 
+登录收到 JSON `null` 或空请求体时返回 HTTP 400、`status: 0`、`code: "CLIENT_REQUEST_INVALID"`，不调用登录限流、节点认证或 Token 签发，也不返回路由快照。登录错误继续使用旧客户端兼容的数字 `status`。
+
 成功为 HTTP 200、JSON：
 
 ```json
@@ -63,7 +65,7 @@ Keepalive 收到 JSON `null` 或空请求体时返回 HTTP 400、`status: "error
 
 ## 4. 错误响应
 
-失败时不返回 `allowed_routes`、`route_revision` 或 `route_lease_seconds`。Keepalive 空请求体为 400 `CLIENT_REQUEST_INVALID`。登录保留旧 `status:0` + `code` + `msg` 包装：错误凭据、非法 SID、旧 SID 歧义、无效节点地址或网络缺失当前可能是 HTTP 200；限流为 429 `CLIENT_LOGIN_RATE_LIMITED`；已禁用/撤销节点为 410 `CLIENT_NODE_REVOKED`；路由查询失败为 503 `CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE`；Redis/会话不可用为 503 `CLIENT_SESSION_UNAVAILABLE` 或 `CLIENT_LOGIN_LIMITER_UNAVAILABLE`。
+失败时不返回 `allowed_routes`、`route_revision` 或 `route_lease_seconds`。登录和 Keepalive 空请求体均为 400 `CLIENT_REQUEST_INVALID`。登录保留旧 `status:0` + `code` + `msg` 包装：错误凭据、非法 SID、旧 SID 歧义、无效节点地址或网络缺失当前可能是 HTTP 200；限流为 429 `CLIENT_LOGIN_RATE_LIMITED`；已禁用/撤销节点为 410 `CLIENT_NODE_REVOKED`；路由查询失败为 503 `CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE`；Redis/会话不可用为 503 `CLIENT_SESSION_UNAVAILABLE` 或 `CLIENT_LOGIN_LIMITER_UNAVAILABLE`。
 
 Keepalive 错误体为 `{"status":"error","code":"...","msg":"..."}`：400 `CLIENT_REQUEST_INVALID` 或 `CLIENT_SID_INVALID`，401 `CLIENT_TOKEN_INVALID`，410 `CLIENT_NODE_REVOKED`，503 `CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE` 或 `CLIENT_KEEPALIVE_FAILED`。物理删除后节点不存在时，旧 Token 也不能访问 API；具体错误可能是 404 `CLIENT_NODE_NOT_FOUND` 或 401，而不保证始终为 410。客户端须同时判断 HTTP 状态和 `status/code`。
 
