@@ -51,6 +51,8 @@ Keepalive 不轮换 `token`，只在旧 Token 尚有效、节点仍获授权、R
 
 新版服务端中，进入 Keepalive Controller 的请求在成功及业务错误响应上均带 `X-Tinc-Request-Id: <UUID>` 和 `Cache-Control: no-store`。请求编号每次重新生成，与服务端“客户端心跳结果”日志中的 `requestId` 对应；它不包含 Token、节点身份或授权信息，不改变 JSON 响应和租约语义。客户端可以在脱敏诊断日志中记录该响应头；旧版服务端没有此头时，客户端仍应按原有 HTTP 状态、业务码和租约字段处理。网络失败或请求体在进入 Controller 前被 Spring MVC 拒绝时可能没有该编号，不能据此断言客户端没有尝试发送。此新增响应头须部署新版 Management 后才在线上生效。
 
+Keepalive 收到 JSON `null` 或空请求体时返回 HTTP 400、`status: "error"`、`code: "CLIENT_REQUEST_INVALID"`，并保留上述请求编号与禁止缓存响应头；响应不包含路由快照或新租约。无法解析的畸形 JSON 仍可能在进入 Controller 前由 Spring MVC 拒绝，因此不保证带请求编号。
+
 ## 3. 路由快照
 
 `allowed_routes` 必填、类型 `string[]`；每项为规范 IPv4 `/32` CIDR。数组首项为当前 Network 网段的网关 `.1/32`（隐含 `gateway` 范围），其余为同一 `network_id` 下符合接入资格的其他节点（隐含 `peer` 范围），按字符串升序、去重；不含自身、跨网节点、已撤销/禁用节点或非法地址。离线但仍获授权的节点继续存在。最大 1024 项，含网关。该数组是客户端路由期望快照，**不是** Tinc 数据面的 ACL 或已建立直连的断开证明。
@@ -61,9 +63,9 @@ Keepalive 不轮换 `token`，只在旧 Token 尚有效、节点仍获授权、R
 
 ## 4. 错误响应
 
-失败时不返回 `allowed_routes`、`route_revision` 或 `route_lease_seconds`。登录保留旧 `status:0` + `code` + `msg` 包装：错误凭据、非法 SID、旧 SID 歧义、无效节点地址或网络缺失当前可能是 HTTP 200；限流为 429 `CLIENT_LOGIN_RATE_LIMITED`；已禁用/撤销节点为 410 `CLIENT_NODE_REVOKED`；路由查询失败为 503 `CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE`；Redis/会话不可用为 503 `CLIENT_SESSION_UNAVAILABLE` 或 `CLIENT_LOGIN_LIMITER_UNAVAILABLE`。
+失败时不返回 `allowed_routes`、`route_revision` 或 `route_lease_seconds`。Keepalive 空请求体为 400 `CLIENT_REQUEST_INVALID`。登录保留旧 `status:0` + `code` + `msg` 包装：错误凭据、非法 SID、旧 SID 歧义、无效节点地址或网络缺失当前可能是 HTTP 200；限流为 429 `CLIENT_LOGIN_RATE_LIMITED`；已禁用/撤销节点为 410 `CLIENT_NODE_REVOKED`；路由查询失败为 503 `CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE`；Redis/会话不可用为 503 `CLIENT_SESSION_UNAVAILABLE` 或 `CLIENT_LOGIN_LIMITER_UNAVAILABLE`。
 
-Keepalive 错误体为 `{"status":"error","code":"...","msg":"..."}`：400 `CLIENT_SID_INVALID`，401 `CLIENT_TOKEN_INVALID`，410 `CLIENT_NODE_REVOKED`，503 `CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE` 或 `CLIENT_KEEPALIVE_FAILED`。物理删除后节点不存在时，旧 Token 也不能访问 API；具体错误可能是 404 `CLIENT_NODE_NOT_FOUND` 或 401，而不保证始终为 410。客户端须同时判断 HTTP 状态和 `status/code`。
+Keepalive 错误体为 `{"status":"error","code":"...","msg":"..."}`：400 `CLIENT_REQUEST_INVALID` 或 `CLIENT_SID_INVALID`，401 `CLIENT_TOKEN_INVALID`，410 `CLIENT_NODE_REVOKED`，503 `CLIENT_ROUTE_SNAPSHOT_UNAVAILABLE` 或 `CLIENT_KEEPALIVE_FAILED`。物理删除后节点不存在时，旧 Token 也不能访问 API；具体错误可能是 404 `CLIENT_NODE_NOT_FOUND` 或 401，而不保证始终为 410。客户端须同时判断 HTTP 状态和 `status/code`。
 
 ## 5. 其他接口的兼容边界
 
