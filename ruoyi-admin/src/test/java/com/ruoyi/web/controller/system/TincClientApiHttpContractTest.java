@@ -188,6 +188,20 @@ class TincClientApiHttpContractTest {
         verify(sessions, never()).issue(anyLong());
     }
 
+    @Test
+    void configDownloadRejectsJsonNullWithoutInspectingNodeOrRuntime() throws Exception {
+        MvcResult result = http.perform(post("/api/tinc/client/config/download")
+                .contentType(MediaType.APPLICATION_JSON).content("null"))
+                .andExpect(status().isBadRequest()).andReturn();
+
+        assertEquals("no-store", result.getResponse().getHeader("Cache-Control"));
+        JSONObject error = body(result);
+        assertEquals("CLIENT_REQUEST_INVALID", error.getString("code"));
+        assertFalse(error.containsKey("token"));
+        verifyNoInteractions(nodes, networks);
+        verifyNoInteractions(sessions);
+    }
+
     private JSONObject response(String request, int expectedHttpStatus) throws Exception {
         MvcResult result = http.perform(post("/api/tinc/client/keepalive")
                 .contentType(MediaType.APPLICATION_JSON).content(request))

@@ -280,9 +280,15 @@ public class TincClientApiController {
      * 下载该节点的初始化 Tinc 配置文件压缩包 (ZIP)
      */
     @PostMapping("/config/download")
-    public void downloadConfig(@RequestBody Map<String, String> params,
+    public void downloadConfig(@RequestBody(required = false) Map<String, String> params,
                                javax.servlet.http.HttpServletResponse response) throws IOException {
         log.info("========== 客户端下载配置接口被调用 ==========");
+
+        if (params == null) {
+            writeClientApiError(response, HttpStatus.BAD_REQUEST,
+                    "CLIENT_REQUEST_INVALID", "请求体必须为 JSON 对象");
+            return;
+        }
 
         String nodeName = params.get("sid");
         String token = params.get("token");
