@@ -202,6 +202,19 @@ class TincClientApiHttpContractTest {
         verifyNoInteractions(sessions);
     }
 
+    @Test
+    void statusUpdateRejectsJsonNullWithoutChangingNodeState() throws Exception {
+        MvcResult result = http.perform(post("/api/tinc/client/status/update")
+                .contentType(MediaType.APPLICATION_JSON).content("null"))
+                .andExpect(status().isBadRequest()).andReturn();
+
+        JSONObject error = body(result);
+        assertEquals("error", error.getString("status"));
+        assertEquals("CLIENT_REQUEST_INVALID", error.getString("code"));
+        verifyNoInteractions(nodes, networks);
+        verifyNoInteractions(sessions);
+    }
+
     private JSONObject response(String request, int expectedHttpStatus) throws Exception {
         MvcResult result = http.perform(post("/api/tinc/client/keepalive")
                 .contentType(MediaType.APPLICATION_JSON).content(request))

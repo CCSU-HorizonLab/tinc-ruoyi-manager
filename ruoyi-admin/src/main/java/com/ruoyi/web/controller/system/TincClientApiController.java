@@ -588,9 +588,14 @@ public class TincClientApiController {
      * 客户端上报自身配置启动结果或在线状态
      */
     @PostMapping("/status/update")
-    public JSONObject editAddInfo(@RequestBody Map<String, String> params,
+    public JSONObject editAddInfo(@RequestBody(required = false) Map<String, String> params,
                                   javax.servlet.http.HttpServletResponse response) {
         log.info("========== 客户端状态上报接口被调用 ==========");
+
+        if (params == null) {
+            return clientStateError(response, HttpStatus.BAD_REQUEST,
+                    "CLIENT_REQUEST_INVALID", "请求体必须为 JSON 对象");
+        }
 
         String nodeName = params.get("sid");
         String token = params.get("token");
