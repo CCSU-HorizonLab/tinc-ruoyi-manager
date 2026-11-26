@@ -73,4 +73,13 @@ Keepalive 错误体为 `{"status":"error","code":"...","msg":"..."}`：400 `CLIE
 
 `POST /api/tinc/client/config/download` 仍只下发 `<netName>/tinc.conf` 和 `<netName>/hosts/server_master`。`POST /api/tinc/client/key/upload` 的成功仍为 `text/plain` 网关 Host 内容。`POST /api/tinc/client/status/update` 请求格式未变。上述接口继续验证原有节点 Token，并在撤销/禁用时拒绝；未新增客户端必须提供的 OS 字段、脚本或路由请求参数。
 
+配置下载和状态上报收到 JSON `null` 或完全空请求体时，均返回 HTTP 400、`Cache-Control: no-store`，并在访问节点、会话或 Runtime 前拒绝。两个接口保留各自已有的错误包装：
+
+| 接口 | 错误 JSON |
+| --- | --- |
+| `/config/download` | `{"code":"CLIENT_REQUEST_INVALID","msg":"请求体必须为 JSON 对象"}` |
+| `/status/update` | `{"status":"error","code":"CLIENT_REQUEST_INVALID","msg":"请求体必须为 JSON 对象"}` |
+
+配置下载此时返回 JSON 错误体，不返回 ZIP；状态上报不更新节点状态。两个错误响应均不包含 Token、路由快照或新租约。纯空白请求体由 Spring MVC 在进入 Controller 前返回 HTTP 400，不访问业务服务；此类响应不保证使用上述业务码或带 `Cache-Control: no-store`。畸形 JSON、数组及其他不能转换为对象的请求也可能在进入 Controller 前被拒绝。上述 Controller 行为须部署相应新版 Management 后生效。
+
 只读核对客户端 Phase 1B 源码后，Rust Agent 已在 `crates/vpn-core/src/api.rs` 解析 `allowed_routes`、`route_revision`、`route_lease_seconds`，并在 `crates/vpn-core/src/engine.rs` 使用路由版本与租约截止时间。服务端本阶段未修改或构建客户端；跨项目端到端互操作仍须在隔离环境验证。

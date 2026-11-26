@@ -33,6 +33,8 @@ class TincClientApiHttpContractTest {
     private final ITincNetworkMangeService networks = mock(ITincNetworkMangeService.class);
     private final TincClientSessionStore sessions = mock(TincClientSessionStore.class);
     private final TincClientLoginLimiter limiter = mock(TincClientLoginLimiter.class);
+    private final IMangeServerService servers = mock(IMangeServerService.class);
+    private final TincRuntimeRouter runtime = mock(TincRuntimeRouter.class);
     private MockMvc http;
     private TincNodeMange self;
     private TincNodeMange peer;
@@ -64,8 +66,8 @@ class TincClientApiHttpContractTest {
         TincClientApiController controller = new TincClientApiController();
         ReflectionTestUtils.setField(controller, "nodeMangeService", nodes);
         ReflectionTestUtils.setField(controller, "networkMangeService", networks);
-        ReflectionTestUtils.setField(controller, "mangeServerService", mock(IMangeServerService.class));
-        ReflectionTestUtils.setField(controller, "tincRuntimeRouter", mock(TincRuntimeRouter.class));
+        ReflectionTestUtils.setField(controller, "mangeServerService", servers);
+        ReflectionTestUtils.setField(controller, "tincRuntimeRouter", runtime);
         ReflectionTestUtils.setField(controller, "sessionStore", sessions);
         ReflectionTestUtils.setField(controller, "loginLimiter", limiter);
         ReflectionTestUtils.setField(controller, "routeSnapshot", routeSnapshot);
@@ -189,30 +191,47 @@ class TincClientApiHttpContractTest {
     }
 
     @Test
-    void configDownloadRejectsJsonNullWithoutInspectingNodeOrRuntime() throws Exception {
-        MvcResult result = http.perform(post("/api/tinc/client/config/download")
-                .contentType(MediaType.APPLICATION_JSON).content("null"))
-                .andExpect(status().isBadRequest()).andReturn();
+    void configDownloadRejectsMissingOrNullBodyWithoutInspectingNodeOrRuntime() throws Exception {
+        for (String requestBody : Arrays.asList("null", "")) {
+            MvcResult result = http.perform(post("/api/tinc/client/config/download")
+                    .contentType(MediaType.APPLICATION_JSON).content(requestBody))
+                    .andExpect(status().isBadRequest()).andReturn();
 
-        assertEquals("no-store", result.getResponse().getHeader("Cache-Control"));
-        JSONObject error = body(result);
-        assertEquals("CLIENT_REQUEST_INVALID", error.getString("code"));
-        assertFalse(error.containsKey("token"));
-        verifyNoInteractions(nodes, networks);
-        verifyNoInteractions(sessions);
+            assertEquals("no-store", result.getResponse().getHeader("Cache-Control"));
+            assertTrue(result.getResponse().getContentType().startsWith("application/json"));
+            JSONObject error = body(result);
+            assertEquals("CLIENT_REQUEST_INVALID", error.getString("code"));
+            assertEquals("请求体必须为 JSON 对象", error.getString("msg"));
+            assertEquals(2, error.size());
+        }
+        verifyNoInteractions(nodes, networks, servers, runtime, sessions);
     }
 
     @Test
-    void statusUpdateRejectsJsonNullWithoutChangingNodeState() throws Exception {
-        MvcResult result = http.perform(post("/api/tinc/client/status/update")
-                .contentType(MediaType.APPLICATION_JSON).content("null"))
-                .andExpect(status().isBadRequest()).andReturn();
+    void statusUpdateRejectsMissingOrNullBodyWithoutChangingNodeState() throws Exception {
+        for (String requestBody : Arrays.asList("null", "")) {
+            MvcResult result = http.perform(post("/api/tinc/client/status/update")
+                    .contentType(MediaType.APPLICATION_JSON).content(requestBody))
+                    .andExpect(status().isBadRequest()).andReturn();
 
-        JSONObject error = body(result);
-        assertEquals("error", error.getString("status"));
-        assertEquals("CLIENT_REQUEST_INVALID", error.getString("code"));
-        verifyNoInteractions(nodes, networks);
-        verifyNoInteractions(sessions);
+            assertEquals("no-store", result.getResponse().getHeader("Cache-Control"));
+            JSONObject error = body(result);
+            assertEquals("error", error.getString("status"));
+            assertEquals("CLIENT_REQUEST_INVALID", error.getString("code"));
+            assertEquals("请求体必须为 JSON 对象", error.getString("msg"));
+            assertEquals(3, error.size());
+        }
+        verifyNoInteractions(nodes, networks, servers, runtime, sessions);
+    }
+
+    @Test
+    void whitespaceBodiesAreRejectedBeforeBusinessServices() throws Exception {
+        for (String path : Arrays.asList("/config/download", "/status/update")) {
+            http.perform(post("/api/tinc/client" + path)
+                    .contentType(MediaType.APPLICATION_JSON).content(" \t\r\n"))
+                    .andExpect(status().isBadRequest());
+        }
+        verifyNoInteractions(nodes, networks, servers, runtime, sessions);
     }
 
     private JSONObject response(String request, int expectedHttpStatus) throws Exception {
