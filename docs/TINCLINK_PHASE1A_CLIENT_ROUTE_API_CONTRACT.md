@@ -83,3 +83,11 @@ Keepalive 错误体为 `{"status":"error","code":"...","msg":"..."}`：400 `CLIE
 配置下载此时返回 JSON 错误体，不返回 ZIP；状态上报不更新节点状态。两个错误响应均不包含 Token、路由快照或新租约。纯空白请求体由 Spring MVC 在进入 Controller 前返回 HTTP 400，不访问业务服务；此类响应不保证使用上述业务码或带 `Cache-Control: no-store`。畸形 JSON、数组及其他不能转换为对象的请求也可能在进入 Controller 前被拒绝。上述 Controller 行为须部署相应新版 Management 后生效。
 
 只读核对客户端 Phase 1B 源码后，Rust Agent 已在 `crates/vpn-core/src/api.rs` 解析 `allowed_routes`、`route_revision`、`route_lease_seconds`，并在 `crates/vpn-core/src/engine.rs` 使用路由版本与租约截止时间。服务端本阶段未修改或构建客户端；跨项目端到端互操作仍须在隔离环境验证。
+
+### 公钥上传请求体边界
+
+`POST /api/tinc/client/key/upload` 要求 `Content-Type: application/json`（允许指定 charset）；媒体类型不符合时优先返回 HTTP 415 `CLIENT_CONTENT_TYPE_INVALID`。
+
+媒体类型有效时，空请求体、JSON `null` 和纯空白请求体返回 HTTP 400 `CLIENT_REQUEST_INVALID`，不应被解释成上传过大。请求体的 UTF-8 编码超过 `64 * 1024` 字节时才返回 HTTP 413 `CLIENT_REQUEST_TOO_LARGE`，限制包含整个 JSON 请求体，不只计算公钥字段；恰好 64 KiB 继续进行 JSON 和字段校验，并不代表上传成功。该检查在 Controller 收到完整请求体后执行，不替代部署层的请求大小限制。
+
+上述错误使用 `{"code":"...","msg":"..."}` 包装及 `Cache-Control: no-store`，在访问节点、会话与 Runtime 前拒绝；成功上传的 `text/plain` 网关 Host 响应保持不变。空请求体从原先错误的 413 改为 400，需要部署新版 Management 才生效。

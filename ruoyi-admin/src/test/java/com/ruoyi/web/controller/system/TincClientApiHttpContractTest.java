@@ -234,6 +234,54 @@ class TincClientApiHttpContractTest {
         verifyNoInteractions(nodes, networks, servers, runtime, sessions);
     }
 
+    @Test
+    void keyUploadRejectsEmptyOrNullBodyAsInvalidRatherThanOversized() throws Exception {
+        for (String requestBody : Arrays.asList("", "null", " \t\r\n")) {
+            MvcResult result = http.perform(post("/api/tinc/client/key/upload")
+                    .contentType(MediaType.APPLICATION_JSON).content(requestBody))
+                    .andExpect(status().isBadRequest()).andReturn();
+            assertEquals("no-store", result.getResponse().getHeader("Cache-Control"));
+            JSONObject error = body(result);
+            assertEquals("CLIENT_REQUEST_INVALID", error.getString("code"));
+            assertEquals("请求体必须为 JSON 对象", error.getString("msg"));
+            assertEquals(2, error.size());
+        }
+        verifyNoInteractions(nodes, networks, servers, runtime, sessions);
+    }
+
+    @Test
+    void keyUploadEnforcesUtf8ByteLimitBeforeBusinessServices() throws Exception {
+        char[] ascii = new char[64 * 1024 + 1];
+        Arrays.fill(ascii, 'x');
+        char[] multibyte = new char[22000];
+        Arrays.fill(multibyte, '界');
+        for (String requestBody : Arrays.asList(new String(ascii), new String(multibyte))) {
+            byte[] bytes = requestBody.getBytes(StandardCharsets.UTF_8);
+            assertTrue(bytes.length > 64 * 1024);
+            MvcResult result = http.perform(post("/api/tinc/client/key/upload")
+                    .contentType("application/json;charset=UTF-8").content(bytes))
+                    .andExpect(status().isPayloadTooLarge()).andReturn();
+            assertEquals("no-store", result.getResponse().getHeader("Cache-Control"));
+            JSONObject error = body(result);
+            assertEquals("CLIENT_REQUEST_TOO_LARGE", error.getString("code"));
+            assertEquals(2, error.size());
+        }
+        verifyNoInteractions(nodes, networks, servers, runtime, sessions);
+    }
+
+    @Test
+    void keyUploadAtByteLimitContinuesJsonFieldValidation() throws Exception {
+        char[] padding = new char[64 * 1024 - 2];
+        Arrays.fill(padding, ' ');
+        byte[] bytes = ("{}" + new String(padding)).getBytes(StandardCharsets.UTF_8);
+        assertEquals(64 * 1024, bytes.length);
+        MvcResult result = http.perform(post("/api/tinc/client/key/upload")
+                .contentType(MediaType.APPLICATION_JSON).content(bytes))
+                .andExpect(status().isBadRequest()).andReturn();
+        assertEquals("CLIENT_ACTION_INVALID", body(result).getString("code"));
+        verifyNoInteractions(nodes, networks, servers, runtime, sessions);
+    }
+
     private JSONObject response(String request, int expectedHttpStatus) throws Exception {
         MvcResult result = http.perform(post("/api/tinc/client/keepalive")
                 .contentType(MediaType.APPLICATION_JSON).content(request))

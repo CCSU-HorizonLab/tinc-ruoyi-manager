@@ -431,7 +431,10 @@ public class TincClientApiController {
             return clientApiError(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "CLIENT_CONTENT_TYPE_INVALID",
                     "Content-Type 必须为 application/json");
         }
-        if (requestBody == null || requestBody.getBytes(StandardCharsets.UTF_8).length > MAX_KEY_UPLOAD_BODY_BYTES) {
+        if (requestBody == null) {
+            return clientApiError(HttpStatus.BAD_REQUEST, "CLIENT_REQUEST_INVALID", "请求体必须为 JSON 对象");
+        }
+        if (requestBody.getBytes(StandardCharsets.UTF_8).length > MAX_KEY_UPLOAD_BODY_BYTES) {
             return clientApiError(HttpStatus.PAYLOAD_TOO_LARGE, "CLIENT_REQUEST_TOO_LARGE",
                     "公钥上传请求体超过限制");
         }
